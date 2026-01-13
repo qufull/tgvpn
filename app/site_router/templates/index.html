@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SkynetVPN — С нами Вы под защитой !</title>
+<style>
+    :root {
+      --primary: #0071e3;
+      --bg: #ffffff;
+      --text-primary: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --max-width: 1000px;
+      --gap: 16px;
+      --radius: 8px;
+    }
+    
+    *, *::before, *::after { 
+      box-sizing: border-box; 
+      margin: 0; 
+      padding: 0; 
+    }
+    
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      scroll-behavior: smooth;
+    }
+    
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    .main-wrapper {
+      flex: 1 0 auto;
+    }
+    
+    a { 
+      text-decoration: none; 
+      color: inherit; 
+    }
+
+    .container {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 var(--gap);
+    }
+
+    header.navbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      padding: 12px 0;
+    }
+
+    .navbar .container {
+      display: flex;
+      align-items: center;
+    }
+
+    .logo {
+      font-size: 32px;
+      font-weight: 800;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: var(--gap);
+      margin-left: var(--gap);
+    }
+
+    .nav-links a {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-primary);
+      transition: color .3s;
+    }
+
+    .nav-links a:hover {
+      color: var(--primary);
+    }
+
+    .btn-cta {
+      margin-left: auto;
+      padding: 12px 24px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .3s;
+    }
+
+    .btn-cta:hover {
+      background: rgba(0,113,227,0.8);
+      transform: translateY(-3px);
+      box-shadow: 0 4px 12px rgba(0,113,227,0.4);
+    }
+
+    .hero {
+      margin: 40px 0;
+    }
+
+    .hero-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--gap);
+    }
+
+    .hero-text h1 {
+      font-size: 48px;
+      line-height: 1.2;
+      margin-bottom: 16px;
+    }
+
+    .hero-text p {
+      font-size: 25px;
+      color: var(--text-secondary);
+    }
+
+    .features, .subscriptions, .faq, .reviews {
+      max-width: var(--max-width);
+      margin: 40px auto;
+      padding: 0 var(--gap);
+    }
+
+    .grid-2 { 
+      display: grid; 
+      grid-template-columns: 1fr 1fr; 
+      gap: var(--gap); 
+    }
+
+    .grid-4 { 
+      display: grid; 
+      grid-template-columns: repeat(4,1fr); 
+      gap: var(--gap); 
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      padding: var(--gap);
+      background: #f7f7f7;
+      border-radius: var(--radius);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      transition: transform .4s, box-shadow .4s;
+    }
+
+    .card:not(.no-hover):hover {
+      transform: translateY(-6px) scale(1.03);
+      box-shadow: 0 0 25px rgba(50, 130, 255, 0.6);
+    }
+
+    .subscriptions h2, .faq h2, .reviews h2 {
+      text-align: center;
+      margin: var(--gap) 0;
+      font-size: 2em;
+    }
+
+    .subscriptions .card h3 {
+      font-size: 2rem;
+      font-weight: 500;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .subscriptions .card p {
+      line-height: 1.4;
+      margin: 4px 0 8px;
+    }
+
+    .subscriptions .card > strong {
+      display: block;
+      font-size: 2rem;
+      text-align: right;
+      margin: auto 0 8px;
+    }
+
+    .card-btn {
+      margin-top: var(--gap);
+      text-align: center;
+      padding: 12px;
+      background: #fff;
+      color: var(--primary);
+      border: 2px solid var(--primary);
+      border-radius: var(--radius);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .card-btn:hover {
+      background: var(--primary);
+      color: #fff;
+      transform: scale(1.05);
+    }
+
+    .installation-timeline {
+      padding: 60px 0;
+    }
+
+    .installation-timeline .container {
+      background: #1d1f27;
+      border-radius: 32px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.20);
+      padding: 60px 0;
+      position: relative;
+    }
+
+    .installation-timeline h2 {
+      text-align: center;
+      color: #fff;
+      margin-bottom: 40px;
+      font-size: 4em;
+    }
+
+    .timeline {
+  width: fit-content;
+  margin: 0 auto;
+}
+
+    
+
+    .timeline-item {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 32px auto;
+  position: relative;
+}
+
+    
+
+    
+
+    .timeline-item .number {
+      color: #fff;
+      font-size: 48px;
+      font-weight: 700;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .timeline-item .content {
+  text-align: center;
+      min-width: 240px;
+      max-width: 340px;
+      background: #282a36;
+      color: #fff;
+      border-radius: var(--radius);
+      padding: 24px 32px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.13);
+    }
+
+    #download {
+      padding: 60px 0;
+    }
+
+    #download .container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    #download h2 {
+      font-size: 2em;
+      margin-bottom: var(--gap);
+    }
+
+    .download-icons {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      margin-top: 24px;
+    }
+
+    .download-icons a {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .icon-bubble {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      transition: all 0.25s;
+    }
+
+    .download-icons a:hover .icon-bubble {
+      box-shadow: 0 0 16px var(--primary);
+      transform: translateY(-4px) scale(1.05);
+    }
+
+    .icon-bubble img {
+      width: 54px;
+      height: 54px;
+    }
+
+    .reviews-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--gap);
+    }
+
+    .review-item {
+      display: flex;
+      align-items: flex-end;
+      gap: var(--gap);
+      margin-bottom: 1cm;
+    }
+
+    .review-item.left {
+      justify-content: flex-start;
+    }
+
+    .review-item.right {
+      justify-content: flex-end;
+    }
+
+    .review-item .bubble {
+      background: #002233;
+      color: #fff;
+      border-radius: var(--radius);
+      padding: var(--gap);
+      max-width: 60%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      transition: transform .3s;
+    }
+
+    .review-item .bubble:hover {
+      transform: translateY(-4px);
+    }
+
+    .review-item .name {
+      color: #ff9800;
+      font-size: 1em;
+      font-weight: 700;
+    }
+
+    .avatar-placeholder {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f0f0f0 60%, #e0e0e0 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid #e5e5ea;
+    }
+
+    .avatar-placeholder::after {
+      content: '';
+      display: block;
+      width: 18px;
+      height: 18px;
+      background: url('https://img.icons8.com/ios-glyphs/30/cccccc/user--v1.png') center/contain no-repeat;
+      opacity: 0.7;
+    }
+
+    .faq-item {
+      background: #f7f7f7;
+      border-radius: var(--radius);
+      margin-bottom: var(--gap);
+      overflow: hidden;
+      transition: all .3s;
+    }
+
+    .faq-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .faq-question {
+      padding: var(--gap);
+      position: relative;
+      cursor: pointer;
+      font-size: 1.1em;
+      font-weight: 500;
+    }
+
+    .faq-question::after {
+      content: '+';
+      position: absolute;
+      right: var(--gap);
+      font-size: 1.2em;
+      transition: transform .3s;
+    }
+
+    .faq-item.active .faq-question::after {
+      content: '?';
+      transform: rotate(180deg);
+    }
+
+    .faq-answer {
+      max-height: 0;
+      padding: 0 var(--gap);
+      color: var(--text-secondary);
+      font-size: 0.95em;
+      line-height: 1.5;
+      overflow: hidden;
+      transition: all .4s ease-out;
+    }
+
+    .faq-item.active .faq-answer {
+      padding: var(--gap);
+      max-height: 500px;
+    }
+
+    .fade-in { 
+      opacity: 0; 
+      transform: translateY(20px); 
+      transition: all .8s ease-out; 
+    }
+
+    .fade-in.visible { 
+      opacity: 1; 
+      transform: translateY(0); 
+    }
+
+    .footer-container {
+      background: #1d1f27;
+      border-radius: 18px;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.15);
+      padding: 6px 0;
+      max-width: 960px;
+      margin: 0 auto;
+      font-size: 1.4em;
+      color: #bfc0c5;
+      text-align: center;
+    }
+
+    .footer-legal {
+      font-size: 0.75em;
+      margin-bottom: 4px;
+    }
+
+    .footer-bottom {
+      font-size: 0.85em;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .footer-bottom a {
+      color: #b7b7c3;
+      transition: color .2s;
+    }
+
+    .footer-bottom a:hover {
+      color: #fff;
+      text-decoration: underline;
+    }
+
+    .footer-sep {
+      margin: 0 4px;
+      color: #5a5a63;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+
+    @keyframes fadeBlink {
+      0% { opacity: 0; }
+      50% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    .support-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #222;
+      transition: color .3s;
+      margin-left: auto;
+    }
+
+    .support-link:hover {
+      color: var(--primary);
+    }
+
+    .support-link .support-icon {
+      width: 32px;
+      height: 32px;
+      animation: pulse 2s infinite;
+    }
+
+    .support-text {
+      display: inline-block;
+      transition: color .3s, transform .3s;
+    }
+
+    .support-link:hover .support-text {
+      color: var(--primary);
+      transform: scale(1.1);
+    }
+
+    .offer-highlight {
+      margin-bottom: 0.3rem;
+      padding: 0.4rem 0.8rem;
+      border: 1px solid rgba(50, 130, 255, 0.8);
+      border-radius: 0.5rem;
+      font-size: 0.95rem;
+      color: #326eff;
+      text-align: center;
+      animation: fadeBlink 1s infinite ease-in-out;
+    }
+
+    
+    @media (max-width: 1024px) {
+      .grid-4 { 
+        grid-template-columns: repeat(2, 1fr); 
+      }
+      
+      .timeline::before { 
+        left: 30px; 
+      }
+      
+      .timeline-item {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 32px auto;
+  position: relative;
+}
+      
+      .timeline-item .number { 
+        margin: 3px 15px 0 0; 
+        font-size: 1.5em; 
+      }
+      
+      .timeline-item .content {
+  text-align: center; 
+        max-width: calc(100vw - 120px); 
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav-links { 
+        display: none; 
+      }
+      
+      .hero-inner { 
+        flex-direction: column; 
+        text-align: center; 
+      }
+      
+      .hero-text h1 { 
+        font-size: 36px; 
+      }
+      
+      .hero-text p { 
+        font-size: 20px; 
+      }
+      
+      .grid-2, .grid-4 { 
+        grid-template-columns: 1fr; 
+      }
+      
+      .download-icons { 
+        flex-wrap: wrap; 
+        gap: 16px; 
+      }
+      
+      .review-item { 
+        flex-direction: column; 
+        align-items: flex-start; 
+      }
+      
+      .review-item .bubble { 
+        max-width: 100%; 
+      }
+      
+      .installation-timeline h2 { 
+        font-size: 2.5em; 
+      }
+      
+      .support-link {
+        font-size: 16px;
+      }
+      
+      .support-link .support-icon {
+        width: 24px;
+        height: 24px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .logo { 
+        font-size: 24px; 
+      }
+      
+      .hero-text h1 { 
+        font-size: 28px; 
+      }
+      
+      .hero-text p { 
+        font-size: 18px; 
+      }
+      
+      .installation-timeline h2 { 
+        font-size: 2em; 
+      }
+      
+      .timeline-item .number { 
+        font-size: 1.2em; 
+        margin: 3px 10px 0 0; 
+      }
+      
+      .timeline-item .content {
+  text-align: center; 
+        max-width: calc(100vw - 80px); 
+        padding: 16px 20px; 
+      }
+      
+      .icon-bubble { 
+        width: 60px; 
+        height: 60px; 
+      }
+      
+      .icon-bubble img { 
+        width: 36px; 
+        height: 36px; 
+      }
+      
+      .footer-container { 
+        border-radius: 0; 
+        font-size: 1em; 
+        padding: 8px 16px; 
+      }
+      
+      .footer-bottom {
+        flex-direction: column;
+        gap: 4px;
+      }
+      
+      .footer-sep {
+        display: none;
+      }
+      
+      .support-link {
+        font-size: 14px;
+      }
+      
+      .support-link .support-icon {
+        width: 20px;
+        height: 20px;
+      }
+    }
+
+    @media (max-width: 320px) {
+      .container {
+        padding: 0 12px;
+      }
+      
+      .hero-text h1 { 
+        font-size: 24px; 
+      }
+      
+      .hero-text p { 
+        font-size: 16px; 
+      }
+      
+      .installation-timeline h2 { 
+        font-size: 1.5em; 
+      }
+      
+      .timeline-item .content {
+  text-align: center; 
+        max-width: calc(100vw - 60px); 
+        padding: 12px 16px; 
+      }
+      
+      .icon-bubble { 
+        width: 50px; 
+        height: 50px; 
+      }
+      
+      .icon-bubble img { 
+        width: 30px; 
+        height: 30px; 
+      }
+    }
+    @media (max-width: 430px) {
+  .hero-text h1 {
+    font-size: 1.3em; 
+  }
+  .hero-text p {
+    font-size: 0.95em; 
+  }
+}
+@media (max-width: 430px) {
+  .subscriptions p {
+    font-size: 0.95em; 
+    margin-top: 4px;
+    margin-bottom: 12px;
+  }
+}
+
+
+
+.sub-info-text {
+  text-align: center;
+  font-weight: 300;
+  margin-top: 8px;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 1.25em;
+}
+@media (max-width: 430px) {
+  .sub-info-text {
+    font-size: 0.8em;
+    margin-top: 4px;
+    margin-bottom: 12px;
+  }
+}
+
+
+.hero-title {
+  font-size: 48px;
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+@media (max-width: 768px) {
+  .hero-title {
+    font-size: 36px;
+  }
+}
+@media (max-width: 480px) {
+  .hero-title {
+    font-size: 28px;
+  }
+}
+@media (max-width: 320px) {
+  .hero-title {
+    font-size: 24px;
+  }
+}
+</style>
+<link href="favicon.png" rel="icon" type="image/png"/></head>
+<body>
+<div class="main-wrapper">
+<header class="navbar fade-in">
+<div class="container">
+<div class="logo">SkynetVPN</div>
+<nav class="nav-links">
+<a href="#subscriptions">Подписки</a>
+<a href="#download">Скачать</a>
+<a href="#faq">Вопросы</a>
+</nav>
+<a class="support-link" href="https://t.me/skynetaivpn_support" target="_blank">
+<img alt="Поддержка" class="support-icon" src="https://img.icons8.com/?size=100&amp;id=oWiuH0jFiU0R&amp;format=png&amp;color=000000"/>
+<span class="support-text">Поддержка</span>
+</a>
+</div>
+</header>
+<section class="hero fade-in">
+<div class="container hero-inner">
+<div class="hero-text">
+<h1>Безопасный доступ в один клик</h1>
+<p>С нами Вы под надёжной защитой</p>
+<p>Никто не должен следить за тем, что вы смотрите</p>
+</div>
+</div>
+</section>
+<section class="features">
+<div class="container grid-2">
+<div class="card no-hover" style="border: 1px solid rgba(50, 130, 255, 0.4);">
+<h3>Надёжная защита данных и подключение без лишних рисков</h3>
+<p>Используйте VPN для работы, путешествий и личной безопасности. Один клик — и вы подключены к зашифрованному каналу</p>
+</div>
+<div class="card no-hover" style="border: 1px solid rgba(50, 130, 255, 0.4);">
+<h3>Инструмент для работы и безопасности</h3>
+<p>VPN помогает защитить бизнес-коммуникации, конфиденциальные документы и личные данные — без сложной настройки</p>
+</div>
+</div>
+</section>
+<section class="subscriptions fade-in" id="subscriptions">
+<h2>ТАРИФЫ</h2>
+<p class="sub-info-text" style="text-align:center;font-weight:300;margin-top:8px;margin-bottom:16px;color:var(--text-primary)">Максимальная выгода при длительной подписке</p>
+<div class="container">
+<div class="grid-4">
+<div class="card fade-in" style="border: 1px solid rgba(50, 130, 255, 0.4);">
+<h3>7 Дней</h3>
+<ul class="features">
+<li>Подключение до 1 устройства</li>
+<li>Неограниченный трафик</li>
+<li>Без подписки и автосписаний</li>
+</ul>
+<strong>50 ₽</strong>
+
+<a class="card-btn" href="https://auth.robokassa.ru/merchant/Invoice/vHNaAaZz90SAN-R2WF5HwQ" target="_blank">Подключить</a></div>
+<div class="card fade-in" style="border: 1px solid rgba(50, 130, 255, 0.4);">
+<h3>1 Месяц</h3>
+<ul class="features">
+<li>Подключение до 2 устройств</li>
+<li>Неограниченный трафик</li>
+<li>Без подписки и автосписаний</li>
+</ul>
+<strong>299 ₽</strong>
+
+<a class="card-btn" href="https://auth.robokassa.ru/merchant/Invoice/zs25Fwm_xkOSs8wO48g3ig" target="_blank">Подключить</a></div>
+<div class="card" style="border: 1px solid #ccc;">
+  <h3>6 Месяцев</h3>
+  <ul class="features">
+    <li>Подключение до 3 устройств</li>
+    <li>Неограниченный трафик</li>
+    <li>Без подписки и автосписаний</li>
+  </ul>
+  <div style="margin-bottom: 0.3rem; padding: 0.4rem 0.8rem; border: 1px solid #ccc; border-radius: 0.5rem; font-size: 0.95rem; color: #6e6e73; text-align: center;">
+    249₽/мес 3 устройства
+  </div>
+  <strong>1499 ₽</strong>
+  <a class="card-btn" href="https://auth.robokassa.ru/merchant/Invoice/eTWpuYAXeUOoQQkQy9QXvw" target="_blank">Подключить</a>
+</div>
+<div class="card" style="border: 1px solid #ccc;">
+  <h3>12 Месяцев</h3>
+  <ul class="features">
+    <li>Подключение до 4 устройств</li>
+    <li>Неограниченный трафик</li>
+    <li>Без подписки и автосписаний</li>
+  </ul>
+  <div style="margin-bottom: 0.3rem; padding: 0.4rem 0.8rem; border: 1px solid #ccc; border-radius: 0.5rem; font-size: 0.95rem; color: #6e6e73; text-align: center;">
+    208₽/мес 4 устройства
+  </div>
+  <strong>2499 ₽</strong>
+  <a class="card-btn" href="https://auth.robokassa.ru/merchant/Invoice/qfsWfiD5iUmkbPeCsny4Ew" target="_blank">Подключить</a>
+</div>
+</div>
+</div>
+</section>
+<section class="installation-timeline fade-in">
+<div class="container">
+<h2>Три простых шага</h2>
+<div class="timeline">
+<div class="timeline-item left">
+<div class="content">
+<h3>Покупка подписки</h3>
+<p>Попробуйте SkynetVPN и получите защищённый доступ в интернет, где ваша конфиденциальность — наш приоритет</p>
+</div>
+</div>
+<div class="timeline-item right">
+<div class="content">
+<h3>Установка</h3>
+<p>Установите приложение на iOS, Android, Windows или macOS за пару кликов</p>
+</div>
+</div>
+<div class="timeline-item left">
+<div class="content">
+<h3>Готово</h3>
+<p>Теперь вы под надёжной защитой и можете безопасно пользоваться интернетом</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="fade-in" id="download">
+<div class="container">
+<h2 class="hero-title">Установите приложение для нашего VPN</h2>
+<div class="download-icons">
+<a href="https://play.google.com/store/apps/details?id=com.v2raytun.android&amp;hl=ru" target="_blank">
+<div class="icon-bubble">
+<img alt="Android" src="https://img.icons8.com/ios-filled/80/android-os.png"/>
+</div>
+<span>Android</span>
+</a>
+<a href="https://apps.apple.com/us/app/v2raytun/id6476628951?l=ru" target="_blank">
+<div class="icon-bubble">
+<img alt="iOS" src="https://img.icons8.com/?size=80&amp;id=30840&amp;format=png"/>
+</div>
+<span>iOS</span>
+</a>
+<a href="https://storage.v2raytun.com/v2RayTun_Setup.exe" target="_blank">
+<div class="icon-bubble">
+<img alt="Windows" src="https://img.icons8.com/?size=80&amp;id=tpIcYSg4KMn0&amp;format=png"/>
+</div>
+<span>Windows</span>
+</a>
+<a href="https://apps.apple.com/ru/app/v2raytun/id6476628951" target="_blank">
+<div class="icon-bubble">
+<img alt="macOS" src="https://img.icons8.com/?size=80&amp;id=122988&amp;format=png"/>
+</div>
+<span>macOS</span>
+</a>
+</div>
+</div>
+</section>
+<section class="reviews fade-in" id="reviews">
+<h2>Отзывы</h2>
+<div class="reviews-container">
+<div class="review-item left">
+<div class="avatar"><div class="avatar-placeholder"></div></div>
+<div class="bubble">
+<div class="name">Алексей</div>
+<p>Отличный vpn, разные тарифы. Если брать на долгий срок, выходит очень выгодно, можно за 200? на месяц. Работает быстро, в работе тоже использую.<br/><br/>Поддержка оперативно работает. 5/5. Спасибо вам за вашу работу</p>
+</div>
+</div>
+<div class="review-item right">
+<div class="avatar"><div class="avatar-placeholder"></div></div>
+<div class="bubble">
+<div class="name">Сергей</div>
+<p>От души, спасибо всей команде, кто занимается поддержкой этого VPN! Пользуюсь им не выключаю, а если возникают вопросы, сразу пишу в поддержку, где моментально помогают разобраться с трудностями.<br/><br/>В общем, самый лучший VPN</p>
+</div>
+</div>
+<div class="review-item left">
+<div class="avatar"><div class="avatar-placeholder"></div></div>
+<div class="bubble">
+<div class="name">Мария</div>
+<p>Очень крутой VPN сервис, работает отлично, скорость супер, пользуюсь уже три месяца не каких проблем нет. Огромное спасибо организаторам сервиса за такую возможность</p>
+</div>
+</div>
+<div class="review-item right">
+<div class="avatar"><div class="avatar-placeholder"></div></div>
+<div class="bubble">
+<div class="name">Олег</div>
+<p>Привет, я прошел через 30 кругов Ада с прошлым VPN :) Они вообще не работали или очень жестко тормозили.<br/><br/>Сейчас юзаю ваш VPN и я очень доволен, спасибо</p>
+</div>
+</div>
+</div>
+</section>
+<section class="faq fade-in" id="faq">
+<h2 class="hero-title">Часто задаваемые вопросы</h2>
+<div class="faq-item">
+<div class="faq-question">1. Как подключиться к VPN?</div>
+<div class="faq-answer">
+          Вам надо приобрести подписку
+        </div>
+</div>
+<div class="faq-item">
+<div class="faq-question">2. Что такое SkynetVPN?</div>
+<div class="faq-answer">
+          SkynetVPN — сервис для безопасного и конфиденциального подключения к интернету.
+Мы уверены, что каждый имеет право на защиту своих данных и приватность в сети. С SkynetVPN ваше подключение надёжно зашифровано, а личная информация остаётся только вашей — где бы вы ни находились
+        </div>
+</div>
+<div class="faq-item">
+<div class="faq-question">3. Почему не стоит использовать бесплатные VPN-сервисы?</div>
+<div class="faq-answer">
+          Использовать бесплатные VPN-сервисы может быть опасно. Владельцы бесплатных VPN-сервисов должны на чем-то зарабатывать, поэтому чаще всего они зарабатывают на вас. Отслеживают и продают ваши данные, показывают навязчивую рекламу и используют вычислительные мощности ваших устройств
+        </div>
+</div>
+<div class="faq-item">
+<div class="faq-question">4. Законно ли использование VPN в России?</div>
+<div class="faq-answer">
+          Само по себе использование VPN в России является легальным для защиты конфиденциальности и доступа к разрешенному контенту. Постановление Правительства РФ от 27.10.2018 № 1279 подтверждает легальность применения VPN-приложений
+        </div>
+</div>
+<div class="faq-item">
+<div class="faq-question">5. В сохранности ли мои данные?</div>
+<div class="faq-answer">
+          Мы не храним личные данные и используем передовые технологии шифрования для обеспечения максимальной защиты вашей информации. Да, ваши данные в безопасности
+        </div>
+</div>
+<div class="faq-item">
+<div class="faq-question">6. Влияет ли VPN на скорость интернета?</div>
+<div class="faq-answer">
+          Да, при использовании VPN скорость вашего интернет-подключения может иногда снижаться. Это происходит потому, что VPN-сервисы создают зашифрованный канал для передачи данных, что требует ресурсов
+        </div>
+</div>
+</section>
+</div>
+<footer>
+<div class="footer-container">
+<div class="footer-legal">
+        ИП Мелконьян Елена Павловна  ИНН 232017219889  ОГРНИП 324237500172507
+      </div>
+<div class="footer-bottom">
+        © 2025 SkynetVPN. Все права защищены.
+        <span class="footer-sep">|</span>
+<a href="privacy-policy.html" target="_blank">Политика конфиденциальности</a>
+<span class="footer-sep">|</span>
+<a href="terms-of-service.html" target="_blank">Публичная оферта</a>
+</div>
+</div>
+</footer>
+<script>
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+    
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    const btn = document.getElementById('btn-connect');
+    function updateBtnText() {
+      if (!btn) return;
+      btn.textContent = window.innerWidth <= 768 ? 'Подключить' : 'Подключить VPN';
+    }
+    window.addEventListener('resize', updateBtnText);
+    document.addEventListener('DOMContentLoaded', updateBtnText);
+
+    document.querySelectorAll('.faq-question').forEach(question => {
+      question.addEventListener('click', () => {
+        const item = question.parentElement;
+        item.classList.toggle('active');
+      });
+    });
+  </script>
+</body>
+</html>

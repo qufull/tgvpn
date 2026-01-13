@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Оплата SkynetVPN</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        .payment-form {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="email"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .checkbox-group {
+            margin: 20px 0;
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .checkbox-label input {
+            margin-right: 10px;
+        }
+        .submit-btn {
+            background: #5C81F0;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .submit-btn:hover {
+            background: #5C81F0;
+        }
+        .terms-link {
+            color: #5C81F0;
+            text-decoration: none;
+        }
+        .terms-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="payment-form">
+        <h2>Оплата подписки SkynetVPN</h2>
+        <b><p>Вы покупаете доступ на {{ show_time }}</p></b>
+        <p>Все подписки продливаются только после вашего подтверждения в боте, отменить подписку можно в любой момент.</p>
+        <P>После оплаты бот отправит вам ключ для приложения и ссылку на установку приложений</P>
+        <p><b>Нажимая оплатить я даю согласие на регулярные списания, на обработку персональных данных и принимаю условия публичной <a href="https://bot-skynetai.ru/terms-of-service.html" class="terms-link">офертой</a></b><p>
+
+        <form method="POST" action="https://auth.robokassa.ru/Merchant/Index.aspx">
+
+            <div class="checkbox-group">
+                <div class="checkbox-label">
+                    <input type="checkbox" id="agreement" name="agreement" required>
+                    <label for="agreement">Оплачивая подписку, вы соглашаетесь с <a href="https://bot-skynetai.ru/terms-of-service.html" class="terms-link">договором офертой</a> и с <a href="https://bot-skynetai.ru/privacy-policy.html" class="terms-link">политикой обработки персональных данных</a>.</label>
+                </div>
+            </div>
+
+            <input type="hidden" name="MerchantLogin" value="{{ shop_id }}">
+            <input type="hidden" name="InvID" value="{{ invoice_id }}">
+            <input type="hidden" name="Description" value="Оплата подписки SkynetVPN {{ time }} {{ time_text }}">
+            <input type="hidden" name="SignatureValue" value="{{ signature_value }}">
+            <input type="hidden" name="OutSum" value="{{ price }}">
+            <input type="hidden" name="Receipt" value="{{ pay_data }}">
+            <input type="hidden" name="Recurring" value="true">
+
+
+            <button type="submit" class="submit-btn">Оплатить</button>
+        </form>
+    </div>
+</body>
+</html>
