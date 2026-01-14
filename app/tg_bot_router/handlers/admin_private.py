@@ -30,7 +30,7 @@ from app.database.queries import (
     orm_get_tariff,
     orm_get_tariffs,
     orm_get_user_server_by_ti,
-    orm_update_server, 
+    orm_update_server,
     orm_update_tariff,
     orm_delete_tariff,
     orm_get_users,
@@ -39,7 +39,6 @@ from app.database.queries import (
     orm_get_user_servers_by_si
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
-
 
 admin_private_router = Router()
 admin_private_router.message.filter(AdminFilter())
@@ -53,9 +52,9 @@ async def admin(message: types.Message):
     )
 
 
-@admin_private_router.message( StateFilter("*"), Command("cancel"))
+@admin_private_router.message(StateFilter("*"), Command("cancel"))
 async def fsm_cancel(message: types.Message, state: FSMContext):
-    currant_state=await state.get_state()
+    currant_state = await state.get_state()
     if currant_state == None:
         return
 
@@ -89,9 +88,11 @@ async def get_tariffs(message: types.Message, session: AsyncSession):
                     sizes=(2,),
                 )
             )
-        await message.answer(f"Всего тарифов: {len(tariffs)}", reply_markup=get_inlineMix_btns(btns={"➕ Добавить тариф": "add_tariff"}))
+        await message.answer(f"Всего тарифов: {len(tariffs)}",
+                             reply_markup=get_inlineMix_btns(btns={"➕ Добавить тариф": "add_tariff"}))
     else:
-        await message.answer("Тарифов пока нет.", reply_markup=get_inlineMix_btns(btns={"➕ Добавить тариф": "add_tariff"}))
+        await message.answer("Тарифов пока нет.",
+                             reply_markup=get_inlineMix_btns(btns={"➕ Добавить тариф": "add_tariff"}))
 
 
 @admin_private_router.callback_query(StateFilter(None), F.data.startswith("delete_tariff"))
@@ -126,10 +127,10 @@ async def add_tariff(callback_query: types.CallbackQuery, state: FSMContext, ses
 @admin_private_router.message(FSMAddTariff.days, F.text)
 async def add_tariff_days(message: types.Message, state: FSMContext):
     if FSMAddTariff.tariff_to_change and message.text == ".":
-        await state.update_data(days = FSMAddTariff.tariff_to_change.days)
+        await state.update_data(days=FSMAddTariff.tariff_to_change.days)
     else:
         try:
-            await state.update_data(days = int(message.text))
+            await state.update_data(days=int(message.text))
         except:
             await message.answer("Неверный формат. Введите количество дней в числах")
             return
@@ -141,10 +142,10 @@ async def add_tariff_days(message: types.Message, state: FSMContext):
 @admin_private_router.message(FSMAddTariff.price, F.text)
 async def add_tariff_price(message: types.Message, state: FSMContext):
     if FSMAddTariff.tariff_to_change and message.text == ".":
-        await state.update_data(price = FSMAddTariff.tariff_to_change.price)
+        await state.update_data(price=FSMAddTariff.tariff_to_change.price)
     else:
         try:
-            await state.update_data(price = int(message.text))
+            await state.update_data(price=int(message.text))
         except:
             await message.answer("Неверный формат. Введите цену тарифа:")
             return
@@ -153,15 +154,13 @@ async def add_tariff_price(message: types.Message, state: FSMContext):
     await message.answer("<b>Введите количество трафика в гигабайтах для обхода белых списков:</b>")
 
 
-
-
 @admin_private_router.message(FSMAddTariff.trafic, F.text)
 async def add_tariff_trafic(message: types.Message, state: FSMContext):
     if FSMAddTariff.tariff_to_change and message.text == ".":
-        await state.update_data(tarif = FSMAddTariff.tariff_to_change.tarif)
+        await state.update_data(tarif=FSMAddTariff.tariff_to_change.tarif)
     else:
         try:
-            await state.update_data(trafic = int(message.text))
+            await state.update_data(trafic=int(message.text))
         except:
             await message.answer("Неверный формат. ведите количество трафика в гигабайтах:")
             return
@@ -173,10 +172,10 @@ async def add_tariff_trafic(message: types.Message, state: FSMContext):
 @admin_private_router.message(FSMAddTariff.ips, F.text)
 async def add_tariff_ips(message: types.Message, state: FSMContext, session: AsyncSession):
     if FSMAddTariff.tariff_to_change and message.text == ".":
-        await state.update_data(ips = FSMAddTariff.tariff_to_change.days)
+        await state.update_data(ips=FSMAddTariff.tariff_to_change.days)
     else:
         try:
-            await state.update_data(ips = int(message.text))
+            await state.update_data(ips=int(message.text))
         except:
             await message.answer("Неверный формат. Введите количество устройств в числах")
             return
@@ -185,8 +184,8 @@ async def add_tariff_ips(message: types.Message, state: FSMContext, session: Asy
 
     if FSMAddTariff.tariff_to_change:
         await orm_update_tariff(
-            session, 
-            tariff_id=FSMAddTariff.tariff_to_change.id, 
+            session,
+            tariff_id=FSMAddTariff.tariff_to_change.id,
             data=data
         )
         FSMAddTariff.tariff_to_change = None
@@ -233,12 +232,12 @@ async def get_servers(message: types.Message, session: AsyncSession):
                 )
             )
         await message.answer(
-            f"Всего серверов: {len(servers)}", 
+            f"Всего серверов: {len(servers)}",
             reply_markup=get_inlineMix_btns(btns={"➕ Добавить сервер": "add_server"})
         )
     else:
         await message.answer(
-            "Серверов пока нет.", 
+            "Серверов пока нет.",
             reply_markup=get_inlineMix_btns(btns={"➕ Добавить сервер": "add_server"})
         )
 
@@ -264,7 +263,7 @@ async def add_server_url(message: types.Message, state: FSMContext):
         await state.update_data(name=FSMAddServer.server_to_change.name)
     else:
         await state.update_data(name=message.text)
-    
+
     await state.set_state(FSMAddServer.url)
     await message.answer("Введите url на 3x-ui панель сервера:")
 
@@ -279,7 +278,7 @@ async def add_server_name(message: types.Message, state: FSMContext):
             return
 
         await state.update_data(url=process_server_url(message.text))
-    
+
     await state.set_state(FSMAddServer.indoub_id)
     await message.answer("Введите id индауба сервера:")
 
@@ -293,7 +292,7 @@ async def add_server_indoub(message: types.Message, state: FSMContext):
             await state.update_data(indoub_id=int(message.text))
         except:
             await message.answer("❌ Некоректный формат! Ввелите id индауба в виде числа:")
-    
+
     await state.set_state(FSMAddServer.login)
     await message.answer("Введите логин админ панели сервера:")
 
@@ -304,7 +303,7 @@ async def add_server_url(message: types.Message, state: FSMContext):
         await state.update_data(login=FSMAddServer.server_to_change.login)
     else:
         await state.update_data(login=message.text)
-    
+
     await state.set_state(FSMAddServer.password)
     await message.answer("Введите пароль админ панели сервера:")
 
@@ -315,7 +314,7 @@ async def add_server_need_gb(message: types.Message, state: FSMContext):
         await state.update_data(password=FSMAddServer.server_to_change.password)
     else:
         await state.update_data(password=message.text)
-    
+
     await state.set_state(FSMAddServer.need_gb)
     await message.answer(
         "Нужно ли ограничение по гигабайтам для данного сервера?",
@@ -332,9 +331,9 @@ async def add_server_password(message: types.Message, state: FSMContext, session
             await state.update_data(need_gb=False)
         elif message.text.lower() == 'да':
             await state.update_data(need_gb=True)
-        else: 
+        else:
             return
-    
+
     data = await state.get_data()
 
     if FSMAddServer.server_to_change:
@@ -343,7 +342,7 @@ async def add_server_password(message: types.Message, state: FSMContext, session
         await message.answer("✅ Сервер изменен", reply_markup=admin_menu_kbrd())
     else:
         await orm_add_server(
-            session, 
+            session,
             name=data['name'],
             url=data['url'],
             indoub_id=data['indoub_id'],
@@ -378,7 +377,7 @@ async def add_server_password(message: types.Message, state: FSMContext, session
                 user_server = await orm_get_user_server_by_ti(session, str(uuid))
                 await threex_panel.add_client(
                     uuid=str(uuid),
-                    email=data['name']+'_'+str(user_server.id),
+                    email=data['name'] + '_' + str(user_server.id),
                     limit_ip=user.ips,
                     name=user.name,
                     tg_id=str(user.telegram_id),
@@ -398,13 +397,13 @@ async def delete_server(callback_query: types.CallbackQuery, session: AsyncSessi
         users_servers = await orm_get_user_servers_by_si(session, server_id)
 
         threex_panel = ThreeXUIServer(
-            id=0, 
-            url=server.url, 
-            indoub_id=server.indoub_id, 
-            login=server.login, 
+            id=0,
+            url=server.url,
+            indoub_id=server.indoub_id,
+            login=server.login,
             password=server.password
         )
-        
+
         if users_servers:
             for i in users_servers:
                 await threex_panel.delete_client(i.tun_id)
@@ -424,7 +423,7 @@ async def delete_server(callback_query: types.CallbackQuery, session: AsyncSessi
 @admin_private_router.message(StateFilter(None), F.text.lower().contains('faq'))
 async def get_faq(message: types.Message, session: AsyncSession):
     faqs = await orm_get_faq(session)
-    
+
     if faqs:
         for faq in faqs:
             await message.answer(
@@ -451,7 +450,7 @@ class FSMAddFaq(StatesGroup):
 async def add_faq(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(FSMAddFaq.ask)
     await callback.message.answer(
-        f"<b>Вы начали добавление вопроса</b>\nДля отмены напишите /cancel\n\n<b>Напишите вопрос:</b>", 
+        f"<b>Вы начали добавление вопроса</b>\nДля отмены напишите /cancel\n\n<b>Напишите вопрос:</b>",
         reply_markup=types.ReplyKeyboardRemove()
     )
     await callback.answer()
@@ -468,7 +467,7 @@ async def add_faq_ask(message: types.Message, state: FSMContext):
 async def add_faq_answer(message: types.Message, state: FSMContext, session: AsyncSession):
     await state.update_data(answer=message.text)
     data = await state.get_data()
-    
+
     try:
         await orm_add_faq(session, data)
         await message.answer("✅ Вопрос и ответ добавлен", reply_markup=admin_menu_kbrd())
@@ -477,7 +476,6 @@ async def add_faq_answer(message: types.Message, state: FSMContext, session: Asy
         await message.answer(f"Ошибка: {e}", reply_markup=admin_menu_kbrd())
     finally:
         await state.clear()
-
 
 
 @admin_private_router.callback_query(StateFilter(None), F.data.startswith('delete_faq'))
@@ -505,17 +503,17 @@ class FSMSendLetter(StatesGroup):
 async def send_newsletter(message: types.Message, state: FSMContext):
     await state.set_state(FSMSendLetter.text)
     await message.answer(
-        f"<b>Вы начали создание расслки</b>\nДля отмены напишите /cancel\n\n<b>Отправте текст сообщения. Для разметки используйте html теги:</b>", 
+        f"<b>Вы начали создание расслки</b>\nДля отмены напишите /cancel\n\n<b>Отправте текст сообщения. Для разметки используйте html теги:</b>",
         reply_markup=types.ReplyKeyboardRemove()
     )
-    
+
 
 @admin_private_router.message(FSMSendLetter.text, F.text)
 async def send_text(message: types.Message, state: FSMContext):
     await state.update_data(text=message.text)
     await state.set_state(FSMSendLetter.img)
     await message.answer(
-        f"<b>Отправте изображеня. Можно отправить до 10 штук. Отправте все изображения отдельными сообщениями. Когда закончите нажмите продолжить:</b>", 
+        f"<b>Отправте изображеня. Можно отправить до 10 штук. Отправте все изображения отдельными сообщениями. Когда закончите нажмите продолжить:</b>",
         reply_markup=types.ReplyKeyboardMarkup(
             keyboard=[
                 [
@@ -558,14 +556,12 @@ async def skip_photos(message: types.Message, state: FSMContext):
     await state.set_state(FSMSendLetter.recipients)
 
 
-
-
 @admin_private_router.callback_query(FSMSendLetter.recipients)
 async def send_letter(
-    callback: types.CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession,
-    bot: Bot
+        callback: types.CallbackQuery,
+        state: FSMContext,
+        session: AsyncSession,
+        bot: Bot
 ):
     data = await state.get_data()
 
@@ -612,6 +608,3 @@ async def send_letter(
 
     await state.clear()
     await callback.answer()
-
-
-

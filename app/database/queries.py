@@ -10,15 +10,15 @@ from app.database.models import User, UserServer, Server, Payment, Tariff, FAQ
 
 # User
 async def orm_add_user(
-    session: AsyncSession,
-    name: str,
-    telegram_id: int,
-    invited_by: Optional[int] = None,
+        session: AsyncSession,
+        name: str,
+        telegram_id: int,
+        invited_by: Optional[int] = None,
 ):
     "Add new user to database if not exist"
     query = select(User).where(User.telegram_id == telegram_id)
     result = await session.execute(query)
-    
+
     if result.first() is None:
         session.add(User(
             name=name,
@@ -27,13 +27,13 @@ async def orm_add_user(
         ))
         await session.commit()
     elif invited_by:
-        query = update(User).where(User.telegram_id==telegram_id).values(invited_by=invited_by)
+        query = update(User).where(User.telegram_id == telegram_id).values(invited_by=invited_by)
 
 
 async def orm_update_user(
-    session: AsyncSession,
-    user_id: int,
-    data: dict    
+        session: AsyncSession,
+        user_id: int,
+        data: dict
 ):
     query = update(User).where(User.id == user_id).values(
         **data
@@ -43,12 +43,12 @@ async def orm_update_user(
 
 
 async def orm_change_user_tariff(
-    session: AsyncSession,
-    user_id: UUID,
-    tariff_id: int,
-    sub_end: datetime,
-    ips: int = 2,
-    tun_ids: Optional[dict[int, str]] = None
+        session: AsyncSession,
+        user_id: UUID,
+        tariff_id: int,
+        sub_end: datetime,
+        ips: int = 2,
+        tun_ids: Optional[dict[int, str]] = None
 ):
     query = update(User).where(User.id == user_id).values(
         tariff_id=tariff_id,
@@ -56,7 +56,7 @@ async def orm_change_user_tariff(
         ips=ips
     )
     await session.execute(query)
-    
+
     if tun_ids:
         for server_id, key in tun_ids.items():
             session.add(UserServer(
@@ -100,13 +100,13 @@ async def orm_get_user_by_tgid(session: AsyncSession, telegram_id: int):
 
 # Server
 async def orm_add_server(
-    session: AsyncSession,
-    name: str,
-    url: str,
-    indoub_id: int,
-    login: str,
-    password: str,
-    need_gb: bool = False
+        session: AsyncSession,
+        name: str,
+        url: str,
+        indoub_id: int,
+        login: str,
+        password: str,
+        need_gb: bool = False
 ):
     session.add(Server(
         name=name,
@@ -126,9 +126,9 @@ async def orm_delete_server(session: AsyncSession, server_id: int):
 
 
 async def orm_update_server(
-    session: AsyncSession,
-    data: dict,
-    server_id: int, 
+        session: AsyncSession,
+        data: dict,
+        server_id: int,
 ):
     query = update(Server).where(Server.id == server_id).values(**data)
     await session.execute(query)
@@ -136,7 +136,7 @@ async def orm_update_server(
 
 
 async def orm_get_servers(session: AsyncSession):
-    query = select(Server).order_by(Server.name.asc())
+    query = select(Server).order_by(Server.id.asc())
     result = await session.execute(query)
     return result.scalars().all()
 
@@ -155,10 +155,10 @@ async def orm_get_server_by_ui(session: AsyncSession, url: str, indoub_id: int):
 
 # UserServer
 async def orm_add_user_server(
-    session: AsyncSession,
-    tun_id: str,
-    user_id: UUID,
-    server_id: int
+        session: AsyncSession,
+        tun_id: str,
+        user_id: UUID,
+        server_id: int
 ):
     session.add(UserServer(
         tun_id=tun_id,
@@ -206,11 +206,11 @@ async def orm_delete_user_servers_by_si(session: AsyncSession, server_id: str):
 
 # Tariff
 async def orm_add_tariff(
-    session: AsyncSession,
-    days: int,
-    ips: int,
-    price: float,
-    trafic: int
+        session: AsyncSession,
+        days: int,
+        ips: int,
+        price: float,
+        trafic: int
 ):
     session.add(Tariff(
         days=days,
@@ -299,7 +299,7 @@ async def orm_edit_faq(session: AsyncSession, id: int, fields: dict):
 
 # Payment
 async def orm_end_payment(session: AsyncSession, id: int):
-    query = update(Payment).where(Payment.id == id).values(paid = True)
+    query = update(Payment).where(Payment.id == id).values(paid=True)
     await session.execute(query)
     await session.commit()
 
@@ -327,16 +327,16 @@ async def orm_get_last_payment_id(session: AsyncSession):
     query = select(Payment).order_by(Payment.id.desc()).limit(1)
     result = await session.execute(query)
     payment = result.scalar_one_or_none()
-    
+
     return payment.id if payment else 0
 
 
 async def orm_get_last_payment(session: AsyncSession, user_id: UUID):
     '''Возвращает последнюю запись о платеже'''
-    query = select(Payment).where(Payment.user_id == user_id).where(Payment.recurent == False).order_by(Payment.id.desc()).limit(1)
+    query = select(Payment).where(Payment.user_id == user_id).where(Payment.recurent == False).order_by(
+        Payment.id.desc()).limit(1)
     result = await session.execute(query)
     payment = result.scalar_one_or_none()
-    
-    return payment.id if payment else 0
 
+    return payment.id if payment else 0
 

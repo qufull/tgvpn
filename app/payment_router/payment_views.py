@@ -155,7 +155,8 @@ async def choose_server(
                 )
             
             await orm_change_user_tariff(
-                session, 
+                session,
+                ips=tariff.ips,
                 tariff_id=tariff.id,
                 user_id=user.id,
                 sub_end=end_datetime
@@ -183,7 +184,8 @@ async def choose_server(
                 )
             
             await orm_change_user_tariff(
-                session, 
+                session,
+                ips=tariff.ips,
                 tariff_id=tariff.id,
                 user_id=user.id,
                 sub_end=end_datetime
@@ -215,7 +217,8 @@ async def choose_server(
             )
         
         await orm_change_user_tariff(
-            session, 
+            session,
+            ips=tariff.ips,
             tariff_id=tariff.id,
             user_id=user.id,
             sub_end=end_datetime
