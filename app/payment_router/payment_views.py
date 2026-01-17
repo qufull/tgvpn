@@ -13,7 +13,7 @@ from starlette.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
 
-from app.tg_bot_router.kbds.inline import succes_pay_btns
+from app.tg_bot_router.kbds.inline import succes_pay_btns, succes_pay_btns_for_gb
 from app.utils.days_to_month import days_to_str
 from app.database.engine import get_async_session, async_session_maker
 from app.setup_logger import logger
@@ -195,6 +195,9 @@ async def choose_server(
         current_limit_gb = max(limits) if limits else 30
         new_limit_gb = current_limit_gb + add_gb
 
+        GB = 1073741824
+        add_gb = int(tariff.trafic)
+
         changed = 0
         for panel in threex_panels:
             if not panel.need_gb:
@@ -207,6 +210,21 @@ async def choose_server(
 
                 email = f"{panel.name}_{us.id}"
 
+                # читаем up/down/total (байты)
+                traf = await panel.client_remain_trafic(us.tun_id)
+                if not traf:
+                    # если не смогли прочитать — хотя бы увеличим от 30
+                    current_total_bytes = 30 * GB
+                else:
+                    up, down, total = traf
+                    current_total_bytes = int(total or 0)
+                    # страховка: минимум 30ГБ
+                    if current_total_bytes < 30 * GB:
+                        current_total_bytes = 30 * GB
+
+                new_total_bytes = current_total_bytes + add_gb * GB
+                new_total_gb = int(new_total_bytes // GB)
+
                 await panel.edit_client(
                     uuid=us.tun_id,
                     email=email,
@@ -214,9 +232,9 @@ async def choose_server(
                     expiry_time=int(user.sub_end.timestamp() * 1000),
                     tg_id=user.telegram_id,
                     name=user.name,
-                    total_gb=new_limit_gb,
+                    total_gb=new_total_gb,
                 )
-                await panel.reset_client_traffic(email)
+
                 changed += 1
             except Exception as e:
                 logger.error(f"[EXTRA_GB] Не удалось применить докупку user={user.telegram_id} panel={panel.id}: {e}")
@@ -230,11 +248,12 @@ async def choose_server(
                 f"📦 Было: <b>{current_limit_gb} ГБ</b>\n"
                 f"➕ Добавлено: <b>{add_gb} ГБ</b>\n"
                 f"🏳️ Стало: <b>{new_limit_gb} ГБ</b>\n\n"
-                "⬇️ <b>Ниже меню подключения/ключ:</b>\n"
-                f"<code>{url}</code>"
+                "<b>Ваша ссылка на ключ. 🔑</b>\n\n"
+                "Нажмите 1 раз чтобы скопировать:\n\n"
+                f"<pre><code>{url}</code></pre>"
             ),
             parse_mode="HTML",
-            reply_markup=succes_pay_btns(user),
+            reply_markup=succes_pay_btns_for_gb(user),
         )
 
         logger.info(f"[EXTRA_GB] user={user.telegram_id} add={add_gb} from={current_limit_gb} to={new_limit_gb} panels_changed={changed}")
@@ -320,8 +339,8 @@ async def choose_server(
             f"<b>✅ Спасибо! Вы оформили подписку!</b>\n\n"
             f"🗓 Ваша подписка активна до {user.sub_end.date().strftime('%d.%m.%Y')}\n\n"
             f"<b>Для автоматического подключения нажмите кнопку \"Подключиться\"\n\n"
-            f"Для ручного ввода скопируйте ключ. Для копирования ключа нажмите на него 1 раз. ⬇️</b>\n"
-            f"<code>{url}</code>",
+            f"Для ручного ввода скопируйте ключ. Для копирования ключа нажмите на него 1 раз. ⬇️</b>\n\n"
+            f"<pre><code>{url}</code></pre>",
             reply_markup=succes_pay_btns(user),
             parse_mode='HTML'
         )

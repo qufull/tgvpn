@@ -1,3 +1,4 @@
+import html
 from typing import Optional
 from uuid import uuid4
 from aiogram import Router, types, F, Bot
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Tariff
 from app.tg_bot_router.common.link_worker import process_server_url
 from app.tg_bot_router.filters.user_filter import AdminFilter
-from app.tg_bot_router.kbds.reply import admin_menu_kbrd, choose_kbrd
+from app.tg_bot_router.kbds.reply import admin_menu_kbrd, choose_kbrd, cancel_kbrd, CANCEL_TEXT
 from app.tg_bot_router.kbds.inline import get_inlineMix_btns
 from app.utils.days_to_month import days_to_str
 from app.setup_logger import logger
@@ -42,6 +43,23 @@ from app.utils.three_x_ui_api import ThreeXUIServer
 
 admin_private_router = Router()
 admin_private_router.message.filter(AdminFilter())
+
+
+async def validate_html(bot: Bot, chat_id: int, text: str) -> tuple[bool, str | None]:
+    try:
+        msg = await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            disable_notification=True,
+        )
+        await msg.delete()
+        return True, None
+
+    except TelegramBadRequest as e:
+        # e.message обычно содержит "Bad Request: can't parse entities: ..."
+        return False, str(e)
 
 
 @admin_private_router.message(Command('admin'))
@@ -504,14 +522,29 @@ async def send_newsletter(message: types.Message, state: FSMContext):
     await state.set_state(FSMSendLetter.text)
     await message.answer(
         f"<b>Вы начали создание расслки</b>\nДля отмены напишите /cancel\n\n<b>Отправте текст сообщения. Для разметки используйте html теги:</b>",
-        reply_markup=types.ReplyKeyboardRemove()
+        reply_markup=cancel_kbrd()
     )
 
 
-@admin_private_router.message(FSMSendLetter.text, F.text)
-async def send_text(message: types.Message, state: FSMContext):
+@admin_private_router.message(FSMSendLetter.text, F.text, F.text != CANCEL_TEXT)
+async def send_text(message: types.Message, state: FSMContext, bot: Bot):
+    ok, err = await validate_html(bot, message.chat.id, message.text)
+
+    if not ok:
+        await message.answer(
+            "❌ <b>Неправильный HTML</b>\n\n"
+            "Чаще всего это:\n"
+            "• перепутанная вложенность тегов (например &lt;b&gt;&lt;i&gt;...&lt;/b&gt;&lt;/i&gt;)\n"
+            "• забыли закрыть тег\n\n"
+            "✏️ Исправь текст и отправь заново.",
+            parse_mode="HTML",
+            reply_markup=cancel_kbrd()
+        )
+        return
+
     await state.update_data(text=message.text)
     await state.set_state(FSMSendLetter.img)
+
     await message.answer(
         f"<b>Отправте изображеня. Можно отправить до 10 штук. Отправте все изображения отдельными сообщениями. Когда закончите нажмите продолжить:</b>",
         reply_markup=types.ReplyKeyboardMarkup(
@@ -523,6 +556,7 @@ async def send_text(message: types.Message, state: FSMContext):
             resize_keyboard=True
         )
     )
+
 
 
 @admin_private_router.message(FSMSendLetter.img, F.photo)
@@ -591,8 +625,9 @@ async def send_letter(
                 await bot.send_message(
                     chat_id=user.telegram_id,
                     text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,  # опционально, чтобы не раздувало предпросмотром
                 )
-
             sent += 1
 
         except TelegramBadRequest:
@@ -608,3 +643,9 @@ async def send_letter(
 
     await state.clear()
     await callback.answer()
+
+
+@admin_private_router.message(StateFilter("*"), F.text == CANCEL_TEXT)
+async def cancel_by_button(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("✅ Действия отменены", reply_markup=admin_menu_kbrd())

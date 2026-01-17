@@ -91,6 +91,25 @@ async def user_menu(callback_query: types.CallbackQuery, callback_data: MenuCall
     # Стандартная обработка (как было раньше)
     caption, reply_markup = content
 
+    caption, reply_markup = content
+
+    # ✅ ТОЛЬКО ДЛЯ "обновить ключ": удаляем старое и шлём новое
+    if callback_data.menu_name == "check":
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+
+        baner = types.FSInputFile("media/img/main_logo_bg.jpg")
+        await callback_query.message.answer_photo(
+            photo=baner,
+            caption=caption if isinstance(caption, str) else caption.caption,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        await callback_query.answer()
+        return
+
     try:
         # Проверяем, пришло ли медиа или просто текст
         if isinstance(caption, types.InputMediaPhoto):

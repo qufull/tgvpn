@@ -1,3 +1,4 @@
+from aiogram import types
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 
@@ -35,3 +36,10 @@ def choose_kbrd():
     return keyboard
 
 
+CANCEL_TEXT = "❌ Отмена"
+
+def cancel_kbrd():
+    return types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text=CANCEL_TEXT)]],
+        resize_keyboard=True
+    )

@@ -95,6 +95,16 @@ def succes_pay_btns(user: User, sizes: tuple = (1,)):
     )
     return keyboard
 
+def succes_pay_btns_for_gb(user: User, sizes: tuple = (1,)):
+    keyboard = get_inlineMix_btns(
+        btns={
+            "↗️ Перейти в v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+            "⬅ В меню": MenuCallback(level=1, menu_name='main').pack()
+        },
+        sizes=sizes
+    )
+    return keyboard
+
 
 def other_products_btns(level: int, sizes: tuple[int] = (1,)):
     keyboard = InlineKeyboardBuilder()
