@@ -115,17 +115,32 @@ def other_products_btns(level: int, sizes: tuple[int] = (1,)):
     return keyboard.adjust(*sizes).as_markup()
 
 
-def get_tariffs_btns(tariffs, sizes: tuple[int] = (1,)):
+def get_tariffs_btns(
+    tariffs,
+    sizes: tuple[int] = (1,),
+    *,
+    extra_gb_url: str | None = None,
+):
     keyboard = InlineKeyboardBuilder()
 
     for tariff in tariffs:
+        if tariff.days <= 0:
+            continue
         keyboard.add(InlineKeyboardButton(
-            text=f"{days_to_str(tariff.days)}, {int(tariff.price)} ₽, кол. устройств {tariff.ips}", 
+            text=f"{days_to_str(tariff.days)}, {int(tariff.price)} ₽, кол. устройств {tariff.ips}",
             callback_data=MenuCallback(level=3, menu_name=f'{tariff.id}').pack()
         ))
 
+    # Доп. продукт: докупить трафик для серверов с обходом белых списков.
+    # Кнопка показывается только если передан url (формируется в menu_menager по условиям подписки).
+    if extra_gb_url:
+        keyboard.add(InlineKeyboardButton(
+            text="+100 ГБ (обход белых списков)",
+            url=extra_gb_url,
+        ))
+
     keyboard.add(InlineKeyboardButton(
-        text=f"⬅️ Назад", 
+        text=f"⬅️ Назад",
         callback_data=MenuCallback(level=1, menu_name='main').pack()
     ))
 

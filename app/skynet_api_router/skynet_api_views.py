@@ -96,14 +96,22 @@ async def update_clients(
         for panel in threex_panels:
             if panel.id != server.server_id:
                 continue
+            total_gb = 0
+            if panel.need_gb:
+                try:
+                    cur = await panel.get_total_gb(server.tun_id)
+                except Exception:
+                    cur = 0
+                total_gb = max(cur, 30)
+
             await panel.edit_client(
-                uuid = server.tun_id, 
-                name = user.name,
-                email = panel.name+'_'+str(server.id), 
-                limit_ip = data.devices, 
-                expiry_time = new_unix_date, 
-                tg_id = user.telegram_id,
-                total_gb = 30*1073741824 if panel.need_gb else 0
+                uuid=server.tun_id,
+                name=user.name,
+                email=panel.name + '_' + str(server.id),
+                limit_ip=data.devices,
+                expiry_time=new_unix_date,
+                tg_id=user.telegram_id,
+                total_gb=total_gb,
             )
 
     await orm_update_user(

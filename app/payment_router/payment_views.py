@@ -7,9 +7,9 @@ from uuid import UUID, uuid4
 
 from aiogram import Bot
 from dateutil.relativedelta import relativedelta
-from fastapi import APIRouter, Depends, Form, HTTPException, Request 
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.templating import Jinja2Templates
-from starlette.responses import FileResponse, HTMLResponse
+from starlette.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
 
@@ -34,7 +34,8 @@ from app.database.queries import (
     orm_get_user_servers,
     orm_new_payment,
     orm_update_user,
-    orm_get_subscribers, orm_get_users
+    orm_get_subscribers,
+    orm_get_users
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
 
@@ -43,48 +44,75 @@ payment_router = APIRouter(prefix="/payment")
 templates = Jinja2Templates(directory='app/payment_router/templates')
 
 
+async def preserve_total_gb(panel: ThreeXUIServer, *, uuid: str, tariff_gb: int) -> int:
+    """
+    На need_gb панелях НЕ уменьшаем лимит:
+    ставим max(текущий лимит в панели, тарифный лимит или 30).
+    На остальных панелях возвращаем 0.
+    """
+    if not panel.need_gb:
+        return 0
+
+    base_gb = int(tariff_gb) if tariff_gb else 30
+    try:
+        current_gb = await panel.get_total_gb(uuid)
+    except Exception:
+        current_gb = 0
+
+    return max(current_gb, base_gb)
+
+
 @payment_router.get('/payment_page', response_class=HTMLResponse)
 async def payment_page(
     request: Request,
     telegram_id: int,
-    tariff_id: int, 
+    tariff_id: int,
     session: AsyncSession = Depends(get_async_session)
 ):
     tariff = await orm_get_tariff(session, tariff_id=int(tariff_id))
     user = await orm_get_user_by_tgid(session, telegram_id=telegram_id)
     if not tariff or not user:
         raise HTTPException(status_code=404, detail="Tariff or User not found")
+
     invoice_id = await orm_get_last_payment_id(session) + 1
 
-    receipt =  {
-          "sno":"patent",
-          "items": [
-            {
-              "name": f"подписка skynetvpn на {days_to_str(tariff.days)}",
-              "quantity": 1,
-              "sum": float(tariff.price),
-              "payment_method": "full_payment",
-              "payment_object": "service",
-              "tax": "vat10"
-            },
-          ]
-        }
+    # Если days=0 и ips=0 — считаем это доп.продуктом (докупка трафика).
+    is_addon = (tariff.days == 0 and tariff.ips == 0)
+    item_name = (
+        f"доп. трафик {tariff.trafic} ГБ (обход белых списков)"
+        if is_addon
+        else f"подписка skynetvpn на {days_to_str(tariff.days)}"
+    )
 
-    print(json.dumps(receipt, ensure_ascii=False))
+    receipt = {
+        "sno": "patent",
+        "items": [
+            {
+                "name": item_name,
+                "quantity": 1,
+                "sum": float(tariff.price),
+                "payment_method": "full_payment",
+                "payment_object": "service",
+                "tax": "vat10"
+            },
+        ]
+    }
+
     base_string = f"{os.getenv('SHOP_ID')}:{tariff.price}:{invoice_id}:{json.dumps(receipt, ensure_ascii=False)}:{os.getenv('PASSWORD_1')}"
     signature_value = hashlib.md5(base_string.encode("utf-8")).hexdigest()
+
     await orm_new_payment(session, tariff_id=tariff.id, user_id=user.id)
 
     return templates.TemplateResponse(
-    "/payment_page.html", 
+        "/payment_page.html",
         {
-            "request": request, 
-            "price": tariff.price, 
-            "time": days_to_str(tariff.days).split(' ')[0], 
-            "show_time": days_to_str(tariff.days), 
-            "pay_data": json.dumps(receipt, ensure_ascii=False), 
-            "shop_id": os.getenv("SHOP_ID"), 
-            "signature_value": signature_value, 
+            "request": request,
+            "price": tariff.price,
+            "time": ("+GB" if is_addon else days_to_str(tariff.days).split(' ')[0]),
+            "show_time": (f"{tariff.trafic} ГБ" if is_addon else days_to_str(tariff.days)),
+            "pay_data": json.dumps(receipt, ensure_ascii=False),
+            "shop_id": os.getenv("SHOP_ID"),
+            "signature_value": signature_value,
             "invoice_id": invoice_id
         }
     )
@@ -92,16 +120,16 @@ async def payment_page(
 
 @payment_router.post("/get_payment")
 async def choose_server(
-        OutSum: Union[str, float, int] = Form(...),
-        InvId: Union[str, float, int] = Form(...),
-        Fee: Union[str, float, int, None] = Form(None),
-        SignatureValue: str = Form(...),
-        EMail: Union[str, None] = Form(None),
-        PaymentMethod: Union[str, None] = Form(None),
-        IncCurrLabel: Union[str, None] = Form(None),
-        Shp_Receipt: Union[str, None] = Form(None),
-        session: AsyncSession = Depends(get_async_session)
-    ):
+    OutSum: Union[str, float, int] = Form(...),
+    InvId: Union[str, float, int] = Form(...),
+    Fee: Union[str, float, int, None] = Form(None),
+    SignatureValue: str = Form(...),
+    EMail: Union[str, None] = Form(None),
+    PaymentMethod: Union[str, None] = Form(None),
+    IncCurrLabel: Union[str, None] = Form(None),
+    Shp_Receipt: Union[str, None] = Form(None),
+    session: AsyncSession = Depends(get_async_session)
+):
     payment = await orm_get_payment(session, int(InvId))
     if not payment:
         raise HTTPException(status_code=404, detail="Оплата не найдена")
@@ -110,50 +138,140 @@ async def choose_server(
 
     try:
         await orm_update_user(session, user.id, {'email': EMail})
-    except:
+    except Exception:
         logger.error("Не удалось сменить почту пользователя")
 
     tariff = await orm_get_tariff(session, payment.tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+
     user_servers = await orm_get_user_servers(session, user.id)
     servers = await orm_get_servers(session)
+
     threex_panels = []
-    for i in servers:
+    for s in servers:
         threex_panels.append(ThreeXUIServer(
-            i.id,
-            i.url,
-            i.indoub_id,
-            i.login,
-            i.password,
-            i.need_gb
+            s.id,
+            s.url,
+            s.indoub_id,
+            s.login,
+            s.password,
+            s.need_gb,
+            s.name,  # важно для единого формата email
         ))
 
+    is_addon = (tariff.days == 0 and tariff.ips == 0)
+
+    # --- ДОП ПРОДУКТ: докупка трафика (накопительно: current + add) ---
+    if (not payment.recurent) and is_addon and (tariff.trafic or 0) > 0:
+        now = datetime.now()
+        if not user.sub_end or user.sub_end < now:
+            await bot.send_message(
+                user.telegram_id,
+                "❌ Докупить трафик можно только при активной подписке.\n\n"
+                "Открой /start → 🛍 Купить подписку.",
+                parse_mode='HTML'
+            )
+            return f'OK{InvId}'
+
+        add_gb = int(tariff.trafic)
+
+        # Берём текущий лимит (в ГБ) по панелям need_gb и прибавляем add_gb.
+        # Чтобы не урезать нигде — берём максимальный текущий лимит среди need_gb панелей.
+        limits = []
+        for panel in threex_panels:
+            if not panel.need_gb:
+                continue
+            us = await orm_get_user_server(session, user.id, panel.id)
+            if not us:
+                continue
+            try:
+                cur_gb = await panel.get_total_gb(us.tun_id)
+                if cur_gb > 0:
+                    limits.append(cur_gb)
+            except Exception as e:
+                logger.error(f"[EXTRA_GB] Не удалось прочитать текущий лимит user={user.telegram_id} panel={panel.id}: {e}")
+
+        current_limit_gb = max(limits) if limits else 30
+        new_limit_gb = current_limit_gb + add_gb
+
+        changed = 0
+        for panel in threex_panels:
+            if not panel.need_gb:
+                continue
+
+            try:
+                us = await orm_get_user_server(session, user.id, panel.id)
+                if not us:
+                    continue
+
+                email = f"{panel.name}_{us.id}"
+
+                await panel.edit_client(
+                    uuid=us.tun_id,
+                    email=email,
+                    limit_ip=user.ips,
+                    expiry_time=int(user.sub_end.timestamp() * 1000),
+                    tg_id=user.telegram_id,
+                    name=user.name,
+                    total_gb=new_limit_gb,
+                )
+                await panel.reset_client_traffic(email)
+                changed += 1
+            except Exception as e:
+                logger.error(f"[EXTRA_GB] Не удалось применить докупку user={user.telegram_id} panel={panel.id}: {e}")
+
+        url = f"{os.getenv('URL')}/api/subscribtion?user_token={user.id}"
+
+        await bot.send_message(
+            user.telegram_id,
+            (
+                "✅ <b>Трафик добавлен!</b>\n\n"
+                f"📦 Было: <b>{current_limit_gb} ГБ</b>\n"
+                f"➕ Добавлено: <b>{add_gb} ГБ</b>\n"
+                f"🏳️ Стало: <b>{new_limit_gb} ГБ</b>\n\n"
+                "⬇️ <b>Ниже меню подключения/ключ:</b>\n"
+                f"<code>{url}</code>"
+            ),
+            parse_mode="HTML",
+            reply_markup=succes_pay_btns(user),
+        )
+
+        logger.info(f"[EXTRA_GB] user={user.telegram_id} add={add_gb} from={current_limit_gb} to={new_limit_gb} panels_changed={changed}")
+        return f'OK{InvId}'
+
+    # --- Обычная покупка/продление тарифа ---
     if not payment.recurent:
 
+        # первая покупка (серверов ещё нет)
         if not user_servers:
             today_datetime = datetime.combine(date.today(), time.min)
             end_datetime = today_datetime + relativedelta(days=tariff.days)
             end_timestamp = int(end_datetime.timestamp() * 1000)
 
-            for i in threex_panels:
+            for panel in threex_panels:
                 uuid = uuid4()
                 await orm_add_user_server(
-                    session, 
-                    server_id=i.id,
-                    tun_id = str(uuid),
-                    user_id = user.id,
+                    session,
+                    server_id=panel.id,
+                    tun_id=str(uuid),
+                    user_id=user.id,
                 )
                 user_server = await orm_get_user_server_by_ti(session, str(uuid))
                 server = await orm_get_server(session, user_server.server_id)
-                await i.add_client(
+
+                email = server.name + '_' + str(user_server.id)
+
+                await panel.add_client(
                     uuid=str(uuid),
-                    email=server.name + '_' + str(user_server.id),
+                    email=email,
                     limit_ip=tariff.ips,
                     expiry_time=end_timestamp,
                     tg_id=user.telegram_id,
                     name=user.name,
-                    total_gb=30 if i.need_gb else 0
+                    total_gb=30 if panel.need_gb else 0
                 )
-            
+
             await orm_change_user_tariff(
                 session,
                 ips=tariff.ips,
@@ -162,27 +280,31 @@ async def choose_server(
                 sub_end=end_datetime
             )
 
+        # продление/смена тарифа (серверы уже есть) — НЕ уменьшаем totalGB
         else:
             today_datetime = datetime.combine(date.today(), time.min)
-            if user.sub_end > today_datetime:
+            if user.sub_end and user.sub_end > today_datetime:
                 end_datetime = user.sub_end + relativedelta(days=tariff.days)
             else:
                 end_datetime = today_datetime + relativedelta(days=tariff.days)
             end_timestamp = int(end_datetime.timestamp() * 1000)
 
-            for i in threex_panels:
-                user_server = await orm_get_user_server(session, user.id, i.id)
+            for panel in threex_panels:
+                user_server = await orm_get_user_server(session, user.id, panel.id)
                 server = await orm_get_server(session, user_server.server_id)
-                await i.edit_client(
+
+                total_gb = await preserve_total_gb(panel, uuid=user_server.tun_id, tariff_gb=int(tariff.trafic or 0))
+
+                await panel.edit_client(
                     uuid=user_server.tun_id,
                     email=server.name + '_' + str(user_server.id),
                     limit_ip=tariff.ips,
                     name=user.name,
                     expiry_time=end_timestamp,
                     tg_id=user.telegram_id,
-                    total_gb=tariff.trafic if i.need_gb else 0
+                    total_gb=total_gb,
                 )
-            
+
             await orm_change_user_tariff(
                 session,
                 ips=tariff.ips,
@@ -192,30 +314,39 @@ async def choose_server(
             )
 
         url = f"{os.getenv('URL')}/api/subscribtion?user_token={user.id}"
-            
+
         await bot.send_message(
-            user.telegram_id, 
-            f"<b>✅ Спасибо! Вы оформили подписку!</b>\n\n🗓 Ваша подписка активна до {user.sub_end.date().strftime('%d.%m.%Y')}\n\n<b>Для автоматического подключения нажмите кнопку \"Подключиться\"\n\nДля ручного ввода скопируйте ключ. Для копирования ключа нажмите на него 1 раз. ⬇️</b>\n<code>{url}</code>",
-            reply_markup=succes_pay_btns(user)
+            user.telegram_id,
+            f"<b>✅ Спасибо! Вы оформили подписку!</b>\n\n"
+            f"🗓 Ваша подписка активна до {user.sub_end.date().strftime('%d.%m.%Y')}\n\n"
+            f"<b>Для автоматического подключения нажмите кнопку \"Подключиться\"\n\n"
+            f"Для ручного ввода скопируйте ключ. Для копирования ключа нажмите на него 1 раз. ⬇️</b>\n"
+            f"<code>{url}</code>",
+            reply_markup=succes_pay_btns(user),
+            parse_mode='HTML'
         )
-        
+
+    # --- Рекуррентное продление — НЕ уменьшаем totalGB ---
     else:
         today_datetime = datetime.combine(date.today(), time.min)
         end_datetime = today_datetime + relativedelta(days=tariff.days)
         end_timestamp = int(end_datetime.timestamp() * 1000)
 
-        for i in threex_panels:
-            user_server = await orm_get_user_server(session, user.id, i.id)
-            await i.edit_client(
+        for panel in threex_panels:
+            user_server = await orm_get_user_server(session, user.id, panel.id)
+
+            total_gb = await preserve_total_gb(panel, uuid=user_server.tun_id, tariff_gb=int(tariff.trafic or 0))
+
+            await panel.edit_client(
                 uuid=user_server.tun_id,
                 email=user.name,
                 limit_ip=tariff.ips,
                 expiry_time=end_timestamp,
                 tg_id=user.telegram_id,
                 name=user.name,
-                total_gb=tariff.trafic if i.need_gb else 0
+                total_gb=total_gb,
             )
-        
+
         await orm_change_user_tariff(
             session,
             ips=tariff.ips,
@@ -234,9 +365,14 @@ async def choose_server(
             f"Для ручного ввода скопируйте ключ. Для копирования ключа нажмите на него 1 раз. ⬇️</b>\n"
             f"<code>{url}</code>",
             reply_markup=succes_pay_btns(user),
+            parse_mode='HTML'
         )
+
     return f'OK{InvId}'
 
+
+# ниже — твои функции check_subscription_expiry / recurent_payment / reset_monthly_traffic / notify_expired_users
+# их можно оставить как есть (reset_monthly_traffic уже не трогает totalGB, только reset счётчика)
 
 async def check_subscription_expiry(bot: Bot):
     """
@@ -374,13 +510,15 @@ async def recurent_payment(bot: Bot):
 
 
 async def reset_monthly_traffic(bot: Bot):
-    """Ежемесячный сброс трафика на сервере обхода белых списков"""
+    """Ежемесячный сброс трафика на сервере обхода белых списков.
+    Для тех, у кого был докупленный/увеличенный лимит (>30ГБ):
+    новый лимит = (остаток в байтах) + 30ГБ, затем reset usage.
+    """
     async with async_session_maker() as session:
         users = await orm_get_users(session)
         servers = await orm_get_servers(session)
         today = datetime.now()
 
-        # Создаём панели только для need_gb серверов
         panels = []
         for s in servers:
             if s.need_gb:
@@ -392,10 +530,11 @@ async def reset_monthly_traffic(bot: Bot):
             logger.info("Нет серверов с need_gb для сброса трафика")
             return
 
+        GB = 1073741824
         reset_count = 0
+        bonus_count = 0
 
         for user in users:
-            # Только активные подписчики
             if not user.sub_end or user.sub_end < today:
                 continue
 
@@ -406,18 +545,64 @@ async def reset_monthly_traffic(bot: Bot):
                     if panel.id != us.server_id:
                         continue
 
+                    email = f"{panel.name}_{us.id}"
+
                     try:
-                        # Формируем email как в других местах
-                        email = panel.name + '_' + str(us.id)
+                        traf = await panel.client_remain_trafic(us.tun_id)
+                        if not traf:
+                            break
+
+                        up, down, total = traf
+                        up = up or 0
+                        down = down or 0
+                        total = total or 0
+
+                        # остаток в байтах
+                        used = up + down
+                        remaining = total - used
+                        if remaining < 0:
+                            remaining = 0
+
+                        # признак "есть докупка": лимит больше 30ГБ
+                        total_gb = int(total // GB)
+
+                        if total_gb > 30:
+                            # хотим: остаток + 30ГБ => новый лимит в ГБ
+                            new_total_bytes = remaining + (30 * GB)
+                            new_total_gb = int(new_total_bytes // GB)
+
+                            # берём текущие параметры клиента, чтобы ничего не сломать
+                            client = await panel.get_client_by_uuid(us.tun_id)
+                            if not client:
+                                logger.warning(f"Не найден клиент для бонуса: tg={user.telegram_id} panel={panel.id} uuid={us.tun_id}")
+                            else:
+                                await panel.edit_client(
+                                    uuid=us.tun_id,
+                                    name=client.get("comment") or user.name,
+                                    email=client.get("email") or email,
+                                    limit_ip=int(client.get("limitIp") or user.ips or 1),
+                                    expiry_time=int(client.get("expiryTime") or int(user.sub_end.timestamp() * 1000)),
+                                    tg_id=str(client.get("tgId") or user.telegram_id),
+                                    total_gb=new_total_gb,
+                                )
+                                bonus_count += 1
+                                logger.info(
+                                    f"Бонус +30ГБ от остатка: tg={user.telegram_id} panel={panel.name} "
+                                    f"total={total_gb}GB used={(used//GB)}GB remaining={(remaining//GB)}GB -> new_total={new_total_gb}GB"
+                                )
+
+                        # reset usage (после него "остаток" станет равен новому лимиту)
                         result = await panel.reset_client_traffic(email)
                         if result:
                             reset_count += 1
                             logger.info(f"Сброшен трафик для {user.name} на {panel.name}")
-                    except Exception as e:
-                        logger.error(f"Ошибка сброса трафика для {user.name}: {e}")
-                    break
 
-        logger.info(f"Ежемесячный сброс трафика завершён. Сброшено: {reset_count}")
+                    except Exception as e:
+                        logger.error(f"Ошибка сброса/бонуса трафика для {user.name} ({user.telegram_id}): {e}")
+
+                    break  # нашли панель для этого us
+
+        logger.info(f"Ежемесячный сброс завершён. Сброшено: {reset_count}, бонусов применено: {bonus_count}")
 
 
 async def notify_expired_users(bot: Bot):

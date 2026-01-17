@@ -1,4 +1,5 @@
 from typing import Optional
+from datetime import datetime
 import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,9 +63,10 @@ async def main_menu(session: AsyncSession, level, menu_name, user_id: Optional[i
 
 
 async def buy_subscribe(
-    session: AsyncSession, 
-    level: int, 
-    menu_name: str
+    session: AsyncSession,
+    level: int,
+    menu_name: str,
+    user_id: int | None = None,
 ) -> tuple:
     tariffs = await orm_get_tariffs(session)
     servers = await orm_get_servers(session)
@@ -77,7 +79,24 @@ async def buy_subscribe(
             continue
         caption += f"\n├ {server.name}"
 
-    kbrd = get_tariffs_btns(tariffs)
+    # --- Доп. кнопка «+100 ГБ» ---
+    # Показываем только если:
+    # 1) есть хотя бы один сервер с need_gb=True
+    # 2) у пользователя есть активная подписка (sub_end в будущем)
+    # 3) в окружении задан id тарифа-доппродукта (EXTRA_GB_TARIFF_ID)
+    extra_gb_url = None
+    try:
+        extra_tariff_id = int(os.getenv("EXTRA_GB_TARIFF_ID", "0"))
+    except Exception:
+        extra_tariff_id = 0
+
+    if user_id and extra_tariff_id > 0 and any(s.need_gb for s in servers):
+        user = await orm_get_user_by_tgid(session, user_id)
+        # активная подписка: sub_end существует и ещё не истекла
+        if user and user.sub_end and user.sub_end > datetime.now():
+            extra_gb_url = f"{os.getenv('URL')}/payment/payment_page?tariff_id={extra_tariff_id}&telegram_id={user_id}"
+
+    kbrd = get_tariffs_btns(tariffs, extra_gb_url=extra_gb_url)
 
     return caption, kbrd
 
@@ -89,53 +108,109 @@ async def check_subscribe(
     user_id: int
 ) -> tuple:
     user = await orm_get_user_by_tgid(session, user_id)
+    if not user:
+        return "❌ Пользователь не найден в базе. Отправьте /start для начала работы.", menu_btn()
+
+    # Отмена подписки
     if menu_name == "cancel":
         await orm_change_user_tariff(
-            session, 
+            session,
             user.id,
-            tariff_id = 0,
-            sub_end = user.sub_end,
-            ips = user.ips,
+            tariff_id=0,
+            sub_end=user.sub_end,
+            ips=user.ips,
         )
-    tariff = await orm_get_tariff(session, user.tariff_id)
-    
-    if not user:
-        return "❌ Пользователь не найден в базе. Отправте /start для начала работы.", menu_btn()
+        # важно: перечитать пользователя после изменения, иначе покажешь старые данные
+        user = await orm_get_user_by_tgid(session, user_id)
 
     user_servers = await orm_get_user_servers(session, user.id)
 
-    if user.tariff_id > 0:
-        caption = f"⚙️ Ваша подписка SkynetVPN: \n├ Цена: {tariff.price}\n├ Срок: {days_to_str(tariff.days)}\n├ Количество устройств: {user.ips}\n└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\nВаша ссылка для подключения, нажмите 1 раз чтобы скопировать: <code>{os.getenv('URL')}/api/subscribtion?user_token={user.id}</code>"
+    now = datetime.now()
+    has_end = bool(user.sub_end)
+    is_expired = bool(has_end and user.sub_end <= now)         # закончилась/истекла
+    has_tariff = bool(user.tariff_id and user.tariff_id > 0)   # есть тариф (не отменён)
+    has_servers = bool(user_servers)                           # есть привязанные сервера
+
+    # тариф может быть удалён из БД — страхуемся
+    tariff = await orm_get_tariff(session, user.tariff_id) if has_tariff else None
+
+    # 1) Подписка активна: есть тариф и дата в будущем
+    if has_tariff and has_end and user.sub_end > now:
+        price = tariff.price if tariff else "—"
+        days = days_to_str(tariff.days) if tariff else "—"
+
+        caption = (
+            "⚙️ Ваша подписка SkynetVPN:\n"
+            f"├ Цена: {price}\n"
+            f"├ Срок: {days}\n"
+            f"├ Количество устройств: {user.ips}\n"
+            f"└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n"
+            "Ваша ссылка на ключ. 🔑\n\n"
+            "Нажмите 1 раз чтобы скопировать:\n"
+            f"<code>{os.getenv('URL')}/api/subscribtion?user_token={user.id}</code>"
+        )
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
                 "❌ Отменить подписку": MenuCallback(level=4, menu_name='cancel').pack(),
-                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack()
+                "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
+                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
             },
             sizes=(1,)
         )
-    elif user_servers:
-        caption = f"⚙️ Ваша подписка SkynetVPN: \n└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n⚠️ Ваша подписка отменена и больше не будет автоматически продлеваться.\n\nВаша ссылка для подключения, нажмите 1 раз чтобы скопировать: <code>{os.getenv('URL')}/api/subscribtion?user_token={user.id}</code>"
+        return caption, keyboard
+
+    # 2) Подписка закончилась (дата <= now): показываем "закончилась" + продлить + обновить + подключиться
+    if is_expired and has_servers:
+        caption = (
+            "⛔️ Ваша подписка SkynetVPN закончилась.\n"
+            f"└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n"
+            "Нажмите «Продлить подписку», оплатите тариф и после оплаты обновите информацию.\n\n"
+        )
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
-                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack()
+                "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
+                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
             },
             sizes=(1,)
         )
-    else:
-        caption = "❌ У вас нет активной подписки."
+        return caption, keyboard
+
+    # 3) Подписка отменена (tariff_id <= 0), но ещё есть sub_end и сервера (действует до даты)
+    if (not has_tariff) and has_end and (user.sub_end > now) and has_servers:
+        caption = (
+            "⚙️ Ваша подписка SkynetVPN:\n"
+            f"└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n"
+            "⚠️ Подписка отменена и больше не будет автоматически продлеваться.\n\n"
+            "Ваша ссылка на ключ. 🔑\n\n"
+            "Нажмите 1 раз чтобы скопировать:\n"
+            f"<code>{os.getenv('URL')}/api/subscribtion?user_token={user.id}</code>"
+        )
         keyboard = get_inlineMix_btns(
             btns={
-                "🛍 Преобрести подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
-                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack()
+                "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+                "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
+                "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
+                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
             },
             sizes=(1,)
         )
+        return caption, keyboard
 
+    # 4) Вообще нет подписки/серверов
+    caption = "❌ У вас нет активной подписки."
+    keyboard = get_inlineMix_btns(
+        btns={
+            "🛍 Приобрести подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
+            "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
+        },
+        sizes=(1,)
+    )
     return caption, keyboard
+
 
 
 
@@ -218,7 +293,7 @@ async def get_menu_content(
     elif level == 1:
         return await main_menu(session, level, menu_name, user_id, include_image)
     elif level == 2:
-        return await buy_subscribe(session, level, menu_name)
+        return await buy_subscribe(session, level, menu_name, user_id=user_id)
     elif level == 3:
         return await pay_menu(session, level, menu_name, user_id)
     elif level == 4:

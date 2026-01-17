@@ -10,7 +10,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.site_router.site_views import site_router
-from app.setup_logger import logger
 from app.database.engine import create_db
 from app.tg_bot_router.bot import start_bot, stop_bot, bot_router
 from app.payment_router.payment_views import payment_router
@@ -33,7 +32,7 @@ async def lifespan(app: FastAPI):
     await start_bot()
 
     expired_trigger = CronTrigger(
-        year="*", month="*", day="*", hour="15", minute="13", second="0"
+        year="*", month="*", day="*", hour="21", minute="09", second="0"
     )
     scheduler.add_job(
         notify_expired_users,
@@ -45,7 +44,7 @@ async def lifespan(app: FastAPI):
 
     # Проверка подписок и уведомления - каждый день в 10:00
     subscription_trigger = CronTrigger(
-        year="*", month="*", day="*", hour="14", minute="21", second="0"
+        year="*", month="*", day="*", hour="21", minute="09", second="0"
     )
     scheduler.add_job(
         check_subscription_expiry,
@@ -57,7 +56,7 @@ async def lifespan(app: FastAPI):
 
     # Автопродление подписок - каждый день в 14:00
     recurent_trigger = CronTrigger(
-        year="*", month="*", day="*", hour="15", minute="14", second="0"
+        year="*", month="*", day="*", hour="21", minute="09", second="0"
     )
     scheduler.add_job(
         recurent_payment,
