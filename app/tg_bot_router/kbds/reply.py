@@ -37,9 +37,12 @@ def choose_kbrd():
 
 
 CANCEL_TEXT = "❌ Отмена"
+CONTINUE_TEXT = "Продолжить ➡️"
 
 def cancel_kbrd():
     return types.ReplyKeyboardMarkup(
         keyboard=[[types.KeyboardButton(text=CANCEL_TEXT)]],
         resize_keyboard=True
     )
+
+

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Tariff
 from app.tg_bot_router.common.link_worker import process_server_url
 from app.tg_bot_router.filters.user_filter import AdminFilter
-from app.tg_bot_router.kbds.reply import admin_menu_kbrd, choose_kbrd, cancel_kbrd, CANCEL_TEXT
+from app.tg_bot_router.kbds.reply import admin_menu_kbrd, choose_kbrd, cancel_kbrd, CANCEL_TEXT, CONTINUE_TEXT
 from app.tg_bot_router.kbds.inline import get_inlineMix_btns
 from app.utils.days_to_month import days_to_str
 from app.setup_logger import logger
@@ -43,6 +43,19 @@ from app.utils.three_x_ui_api import ThreeXUIServer
 
 admin_private_router = Router()
 admin_private_router.message.filter(AdminFilter())
+
+
+def detect_parse_mode(text: str) -> str | None:
+    t = text or ""
+    # грубый, но рабочий детектор
+    if any(tag in t for tag in ("<b>", "<i>", "<u>", "<s>", "<a ", "<code>", "<pre>", "<span")):
+        return "HTML"
+
+    # MarkdownV2 маркеры (с телефона обычно именно это)
+    if any(ch in t for ch in ("*", "_", "`", "~", "[", "]", "(", ")", "|")):
+        return "MarkdownV2"
+
+    return None
 
 
 async def validate_html(bot: Bot, chat_id: int, text: str) -> tuple[bool, str | None]:
@@ -90,7 +103,7 @@ class FSMAddTariff(StatesGroup):
     tariff_to_change: Optional[Tariff] = None
 
 
-@admin_private_router.message(StateFilter(None), F.text.lower().contains("тарифы"))
+@admin_private_router.message(StateFilter(None), F.text == '💰 Тарифы')
 async def get_tariffs(message: types.Message, session: AsyncSession):
     tariffs = await orm_get_tariffs(session)
 
@@ -233,7 +246,7 @@ class FSMAddServer(StatesGroup):
     server_to_change = None
 
 
-@admin_private_router.message(F.text.lower().contains('сервера'))
+@admin_private_router.message(F.text == '🌐 Сервера')
 async def get_servers(message: types.Message, session: AsyncSession):
     servers = await orm_get_servers(session)
 
@@ -528,30 +541,28 @@ async def send_newsletter(message: types.Message, state: FSMContext):
 
 @admin_private_router.message(FSMSendLetter.text, F.text, F.text != CANCEL_TEXT)
 async def send_text(message: types.Message, state: FSMContext, bot: Bot):
-    ok, err = await validate_html(bot, message.chat.id, message.text)
+    # ✅ забираем форматирование (жирный/курсив/ссылка) из entities
+    text_html = message.html_text  # <-- ключевая строка
 
+    ok, err = await validate_html(bot, message.chat.id, text_html)
     if not ok:
         await message.answer(
             "❌ <b>Неправильный HTML</b>\n\n"
-            "Чаще всего это:\n"
-            "• перепутанная вложенность тегов (например &lt;b&gt;&lt;i&gt;...&lt;/b&gt;&lt;/i&gt;)\n"
-            "• забыли закрыть тег\n\n"
             "✏️ Исправь текст и отправь заново.",
             parse_mode="HTML",
             reply_markup=cancel_kbrd()
         )
         return
 
-    await state.update_data(text=message.text)
+    await state.update_data(text=text_html, parse_mode="HTML")
     await state.set_state(FSMSendLetter.img)
-
     await message.answer(
         f"<b>Отправте изображеня. Можно отправить до 10 штук. Отправте все изображения отдельными сообщениями. Когда закончите нажмите продолжить:</b>",
+        parse_mode="HTML",
         reply_markup=types.ReplyKeyboardMarkup(
             keyboard=[
-                [
-                    types.KeyboardButton(text='Продолжить ➡️'),
-                ]
+                [types.KeyboardButton(text=CONTINUE_TEXT)],
+                [types.KeyboardButton(text=CANCEL_TEXT)],
             ],
             resize_keyboard=True
         )
@@ -583,7 +594,7 @@ async def skip_photos(message: types.Message, state: FSMContext):
         reply_markup=get_inlineMix_btns(
             btns={
                 'Активные подписчики': 'active_subscribers',
-                'Все': 'all'
+                'Все': 'all',
             }, sizes=(1,)
         )
     )
