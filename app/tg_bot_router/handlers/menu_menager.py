@@ -62,6 +62,7 @@ async def main_menu(session: AsyncSession, level, menu_name, user_id: Optional[i
     else:
         return caption, kbd
 
+DAY10_ID = int(os.getenv("TARIFF_DAY10_ID", "0") or 0)
 
 async def buy_subscribe(
     session: AsyncSession,
@@ -80,11 +81,22 @@ async def buy_subscribe(
             continue
         caption += f"\n├ {server.name}"
 
-    # --- Доп. кнопка «+100 ГБ» ---
-    # Показываем только если:
-    # 1) есть хотя бы один сервер с need_gb=True
-    # 2) у пользователя есть активная подписка (sub_end в будущем)
-    # 3) в окружении задан id тарифа-доппродукта (EXTRA_GB_TARIFF_ID)
+    if user_id and DAY10_ID:
+        user = await orm_get_user_by_tgid(session, user_id)
+
+        is_new_user = False
+        if user:
+            user_servers = await orm_get_user_servers(session, user.id)
+
+            is_new_user = (
+                    user.tariff_id == 0
+                    and user.sub_end is None
+                    and not user_servers
+            )
+
+        if not is_new_user:
+            tariffs = [t for t in tariffs if t.id != DAY10_ID]
+
     extra_gb_url = None
     try:
         extra_tariff_id = int(os.getenv("EXTRA_GB_TARIFF_ID", "0"))
@@ -227,7 +239,25 @@ async def pay_menu(
     if not tariff:
         return "❌ Тариф не найден", menu_btn()
 
-    caption = f"Вы выбрали подписку: <b>{days_to_str(tariff.days)}</b>\nСтоимость: {tariff.price} руб.\nСпособ оплаты: Банковская карта\nВремя на оплату: 10 минут\n\nВсе подписки продлеваются автоматически. Отмена подписки возможна в любой момент.\n\nПосле оплаты SkynetVPN будет отправлена в течение минуты."
+    caption = (
+        f"Вы выбрали подписку: <b>{days_to_str(tariff.days)}</b>\n"
+        f"Стоимость: {tariff.price} руб.\n"
+        "Способ оплаты: Банковская карта\n"
+        "Время на оплату: 10 минут\n\n"
+    )
+
+    if tariff.id == DAY10_ID:
+        caption += (
+            "<b>⚠️ Важно:</b>\n"
+            "Тариф действует <b>24 часа</b>.\n"
+            "После окончания пробного тарифа, автоматически\n"
+            "подключается <b>месячный тариф за 299 ₽.</b>\n\n"
+            'Подписку можно будет отменить в любое время в разделе "Проверить подписку"\n\n'
+        )
+    else:
+        caption += "Все подписки продлеваются автоматически. Отмена подписки возможна в любой момент.\n\n"
+
+    caption += "После оплаты ключ доступа будет отправлен в течение минуты."
     keyboard = get_pay_btns(tariff, user_id)
 
     return caption, keyboard
@@ -252,10 +282,10 @@ async def help_menu(level: int, menu_name: str) -> tuple:
     elif menu_name == 'windows':
         # Сюда вставьте реальные file_id ваших 4 скриншотов
         windows_file_ids = [
-            "AgACAgIAAxkBAAISCWliOcxbehrgKAQ-mhbK0xpmV8TTAAL7DWsbKbsQS0uTR4ioiA0YAQADAgADeQADOAQ",  # ID 1
-            "AgACAgIAAxkBAAISC2liOdBt2nXBLj1txG3rL_0xQ2w7AAL8DWsbKbsQS-nom7PEVaBiAQADAgADeQADOAQ",  # ID 2
-            "AgACAgIAAxkBAAISDWliOdX-hJilRCDdOLJmMtgljCG4AAL9DWsbKbsQS1LF3ji8ESjWAQADAgADeQADOAQ",  # ID 3
-            "AgACAgIAAxkBAAISD2liOdfYbPwejLUQUuqAq05-wDpSAAL-DWsbKbsQS74EYSqDCO8oAQADAgADeQADOAQ"  # ID 4
+            "AgACAgIAAxkBAAI8Z2liQG8WHMNi86qAywjp-4E74eXbAAJYD2sbdzkQS-e206zBEjc6AQADAgADeQADOAQ",  # ID 1
+            "AgACAgIAAxkBAAI8aWliQIFSah1I-HnRqLEAAesaL4WWKgACWw9rG3c5EEvExokAAdUtTEIBAAMCAAN5AAM4BA",  # ID 2
+            "AgACAgIAAxkBAAI8a2liQJEQUL9EQ2YgYIEnjvt3G69_AAJdD2sbdzkQS-MRv_dOBQ1oAQADAgADeQADOAQ",  # ID 3
+            "AgACAgIAAxkBAAI8bWliQKViSn1g_gtJd_sBLXzC5gWCAAJeD2sbdzkQS6DLPJ_zcIgbAQADAgADeQADOAQ"  # ID 4
         ]
 
         album = []
@@ -283,12 +313,12 @@ async def other_products(level: int, menu_name: str):
 
     return caption, keyboard
 
- 
+
 async def get_menu_content(
     session: AsyncSession,
     level: int,
     menu_name: str,
-    user_id: Optional[int] = None, 
+    user_id: Optional[int] = None,
     include_image: bool = False
 ) -> tuple:
     if level == 0:

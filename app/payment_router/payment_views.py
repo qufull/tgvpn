@@ -447,85 +447,107 @@ async def check_subscription_expiry(bot: Bot):
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление {user.telegram_id}: {e}")
 
+DAY10_ID = int(os.getenv("TARIFF_DAY10_ID", "0") or 0)
+MONTH300_ID = int(os.getenv("TARIFF_MONTH300_ID", "0") or 0)
 
 async def recurent_payment(bot: Bot):
-    """Автоматическое продление подписок через Robokassa"""
+    """Автоматическое продление подписок через Robokassa
+    Правило:
+    - если истёк тариф 10₽/день -> выставляем рекуррент на 300₽/месяц
+    - иначе продлеваем текущий тариф
+    """
     async with async_session_maker() as session:
         users = await orm_get_subscribers(session)
         today = datetime.combine(date.today(), time.min)
 
         for user in users:
-            # Проверяем: tariff_id > 0 и подписка истекла
-            if user.tariff_id != 0 and user.sub_end and user.sub_end <= today:
-                logger.info(f"Автопродление для {user.name} (tg:{user.telegram_id})")
+            # Проверяем: есть тариф и подписка истекла
+            if user.tariff_id == 0 or not user.sub_end or user.sub_end > today:
+                continue
 
-                # Получаем последний НЕрекуррентный платёж (первичный)
-                last_payment = await orm_get_last_payment(session, user.id)
-                if not last_payment:
-                    logger.warning(f"Нет предыдущего платежа для {user.telegram_id}")
-                    continue
+            logger.info(f"Автопродление для {user.name} (tg:{user.telegram_id})")
 
-                tariff = await orm_get_tariff(session, tariff_id=user.tariff_id)
-                if not tariff:
-                    logger.warning(f"Тариф {user.tariff_id} не найден")
-                    continue
+            # Последний НЕрекуррентный платёж (первичный)
+            last_payment = await orm_get_last_payment(session, user.id)
+            if not last_payment:
+                logger.warning(f"Нет предыдущего платежа для {user.telegram_id}")
+                continue
 
-                # Создаём новый рекуррентный платёж
-                await orm_new_payment(
-                    session,
-                    tariff_id=user.tariff_id,
-                    user_id=user.id,
-                    recurent=True
-                )
-                invoice_id = await orm_get_last_payment_id(session)
+            # Определяем, какой тариф продлеваем
+            renew_tariff_id = user.tariff_id
 
-                receipt = {
-                    "sno": "patent",
-                    "items": [
-                        {
-                            "name": f"Подписка SkynetVPN на {days_to_str(tariff.days)}",
-                            "quantity": 1,
-                            "sum": float(tariff.price),
-                            "payment_method": "full_payment",
-                            "payment_object": "service",
-                            "tax": "vat10"
-                        },
-                    ]
-                }
+            # 🔁 ВАЖНО: переход с дневного тарифа на месячный
+            if DAY10_ID and MONTH300_ID and user.tariff_id == DAY10_ID:
+                renew_tariff_id = MONTH300_ID
 
-                # Подпись для рекуррентного платежа
-                base_string = f"{os.getenv('SHOP_ID')}:{tariff.price}:{invoice_id}:{os.getenv('PASSWORD_1')}"
-                signature_value = hashlib.md5(base_string.encode("utf-8")).hexdigest()
+            tariff = await orm_get_tariff(session, tariff_id=renew_tariff_id)
+            if not tariff:
+                logger.warning(f"Тариф {renew_tariff_id} не найден")
+                continue
 
-                try:
-                    async with AsyncClient() as client:
-                        response = await client.post(
-                            'https://auth.robokassa.ru/Merchant/Recurring',
-                            data={
-                                "MerchantLogin": os.getenv('SHOP_ID'),
-                                "InvoiceID": int(invoice_id),
-                                "PreviousInvoiceID": int(last_payment),
-                                "Description": "Автопродление подписки SkynetVPN",
-                                "SignatureValue": signature_value,
-                                "OutSum": float(tariff.price),
-                            }
+            # Создаём новый рекуррентный платёж (УЖЕ на renew_tariff_id)
+            await orm_new_payment(
+                session,
+                tariff_id=renew_tariff_id,
+                user_id=user.id,
+                recurent=True
+            )
+            invoice_id = await orm_get_last_payment_id(session)
+
+            # 📌 Описание в чеке (то, что ты просила "в описании тарифа")
+            item_name = f"Подписка SkynetVPN на {days_to_str(tariff.days)}"
+            if DAY10_ID and MONTH300_ID and user.tariff_id == DAY10_ID:
+                item_name += " (после 1 дня автоматически подключится тариф 300 ₽/месяц)"
+
+            receipt = {
+                "sno": "patent",
+                "items": [
+                    {
+                        "name": item_name,
+                        "quantity": 1,
+                        "sum": float(tariff.price),
+                        "payment_method": "full_payment",
+                        "payment_object": "service",
+                        "tax": "vat10"
+                    },
+                ]
+            }
+
+            base_string = f"{os.getenv('SHOP_ID')}:{tariff.price}:{invoice_id}:{os.getenv('PASSWORD_1')}"
+            signature_value = hashlib.md5(base_string.encode("utf-8")).hexdigest()
+
+            try:
+                async with AsyncClient() as client:
+                    response = await client.post(
+                        "https://auth.robokassa.ru/Merchant/Recurring",
+                        data={
+                            "MerchantLogin": os.getenv("SHOP_ID"),
+                            "InvoiceID": int(invoice_id),
+                            "PreviousInvoiceID": int(last_payment),
+                            "Description": f"Автопродление SkynetVPN: {item_name}",
+                            "SignatureValue": signature_value,
+                            "OutSum": float(tariff.price),
+                            # Если у тебя подключены чеки и Robokassa это принимает в твоей схеме — добавь:
+                            # "Receipt": json.dumps(receipt, ensure_ascii=False),
+                        }
+                    )
+
+                    logger.info(
+                        f"Robokassa ответ для {user.telegram_id}: {response.status_code} - {response.text}"
+                    )
+
+                    if response.status_code == 200:
+                        logger.info(f"Запрос на автопродление отправлен для {user.telegram_id}")
+                    else:
+                        logger.error(f"Ошибка Robokassa: {response.text}")
+                        await bot.send_message(
+                            user.telegram_id,
+                            "⚠️ Не удалось автоматически продлить подписку. "
+                            "Пожалуйста, продлите вручную: /start → Купить подписку"
                         )
 
-                        logger.info(f"Robokassa ответ для {user.telegram_id}: {response.status_code} - {response.text}")
-
-                        if response.status_code == 200:
-                            # Robokassa приняла запрос, ждём callback на /payment/get_payment
-                            logger.info(f"Запрос на автопродление отправлен для {user.telegram_id}")
-                        else:
-                            logger.error(f"Ошибка Robokassa: {response.text}")
-                            await bot.send_message(
-                                user.telegram_id,
-                                "⚠️ Не удалось автоматически продлить подписку. "
-                                "Пожалуйста, продлите вручную: /start → Купить подписку"
-                            )
-
-                except Exception as e:
-                    logger.error(f"Ошибка автопродления для {user.telegram_id}: {e}")
+            except Exception as e:
+                logger.error(f"Ошибка автопродления для {user.telegram_id}: {e}")
 
 
 async def reset_monthly_traffic(bot: Bot):
