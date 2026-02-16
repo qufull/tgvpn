@@ -14,7 +14,7 @@ def admin_menu_kbrd():
                 KeyboardButton(text='🌐 Сервера'),
             ],
             [
-                KeyboardButton(text='⚙️ Редактировать FAQ'),
+                KeyboardButton(text='⚙️ Редактировать "Частые вопросы?"'),
                 KeyboardButton(text='➕ Добавить дни'),
             ]
         ],

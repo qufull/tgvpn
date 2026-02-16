@@ -193,7 +193,9 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
     response.headers["announce"] = "base64:" + base64.b64encode(
         ("🚀 Нажмите сюда, чтобы перейти в нашего бота\n\n"
          "👑 - без рекламы на YouTube\n"
-         "🎧 - YouTube можно сворачивать \n\n"
+         "🎧 - YouTube можно сворачивать \n"
+         "🎭 - обходят блокировки VLESS \n"
+         "⚡️ - супербыстрое соединение\n\n"
          "Отображаемое количество трафика относиться только к обходу белых списков.").encode('utf-8')
     ).decode('latin-1')
     response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"

@@ -38,6 +38,7 @@ from app.database.queries import (
     orm_get_subscribers,
     orm_delete_user_servers_by_si,
     orm_get_user_servers_by_si,
+    orm_swap_server_order,
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
 
@@ -251,16 +252,20 @@ async def get_servers(message: types.Message, session: AsyncSession):
     servers = await orm_get_servers(session)
 
     if servers:
-        for server in servers:
+        for idx, server in enumerate(servers):
+            btns = {}
+            # Кнопка вверх (если не первый)
+            if idx > 0:
+                btns['⬆️'] = f'sort_server_{server.id}_up'
+            # Кнопка вниз (если не последний)
+            if idx < len(servers) - 1:
+                btns['⬇️'] = f'sort_server_{server.id}_down'
+            btns['🗑 Удалить'] = f'delete_server_{server.id}'
+            btns['✏️ Изменить'] = f'edit_server_{server.id}'
+
             await message.answer(
-                f"<b>Заголовок: {server.name}</b>\n<b>URL: {server.url}</b>\n<b>Индауб: {server.indoub_id}</b>\nЛогин: <span class='tg-spoiler'>{server.login}</span>\nПароль: <span class='tg-spoiler'>{server.password}</span>",
-                reply_markup=get_inlineMix_btns(
-                    btns={
-                        '🗑 Удалить': f'delete_server_{server.id}',
-                        '✏️ Изменить': f'edit_server_{server.id}',
-                    },
-                    sizes=(2,),
-                )
+                f"<b>{idx+1}. {server.name}</b>\n<b>URL: {server.url}</b>\n<b>Индауб: {server.indoub_id}</b>\nЛогин: <span class='tg-spoiler'>{server.login}</span>\nПароль: <span class='tg-spoiler'>{server.password}</span>",
+                reply_markup=get_inlineMix_btns(btns=btns, sizes=(2, 2))
             )
         await message.answer(
             f"Всего серверов: {len(servers)}",
@@ -271,6 +276,43 @@ async def get_servers(message: types.Message, session: AsyncSession):
             "Серверов пока нет.",
             reply_markup=get_inlineMix_btns(btns={"➕ Добавить сервер": "add_server"})
         )
+
+
+@admin_private_router.callback_query(StateFilter(None), F.data.startswith("sort_server_"))
+async def sort_server(callback_query: types.CallbackQuery, session: AsyncSession):
+    """Обработчик кнопок ⬆️/⬇️ для сортировки серверов"""
+    parts = callback_query.data.split("_")  # sort_server_ID_up/down
+    server_id = int(parts[2])
+    direction = parts[3]  # "up" или "down"
+
+    servers = await orm_get_servers(session)
+    server_ids = [s.id for s in servers]
+
+    try:
+        idx = server_ids.index(server_id)
+    except ValueError:
+        await callback_query.answer("❌ Сервер не найден")
+        return
+
+    if direction == "up" and idx > 0:
+        swap_with = server_ids[idx - 1]
+    elif direction == "down" and idx < len(server_ids) - 1:
+        swap_with = server_ids[idx + 1]
+    else:
+        await callback_query.answer("Некуда двигать")
+        return
+
+    await orm_swap_server_order(session, server_id, swap_with)
+    await callback_query.answer("✅ Порядок изменён")
+
+    # Удаляем старое сообщение и показываем обновлённый список
+    try:
+        await callback_query.message.delete()
+    except Exception:
+        pass
+
+    # Пересоздаём список — шлём как будто нажали "Сервера"
+    await get_servers(callback_query.message, session)
 
 
 @admin_private_router.callback_query(StateFilter(None), F.data.startswith("edit_server"))
@@ -451,7 +493,7 @@ async def delete_server(callback_query: types.CallbackQuery, session: AsyncSessi
 
 
 # FAQ
-@admin_private_router.message(StateFilter(None), F.text.lower().contains('faq'))
+@admin_private_router.message(StateFilter(None), F.text.lower().contains('частые вопросы'))
 async def get_faq(message: types.Message, session: AsyncSession):
     faqs = await orm_get_faq(session)
 
@@ -621,6 +663,10 @@ async def send_letter(
     sent = 0
 
     for user in users:
+        # Не отправляем рассылку самому себе (админу)
+        if user.telegram_id == callback.from_user.id:
+            continue
+
         try:
             if pictures:
                 media = [

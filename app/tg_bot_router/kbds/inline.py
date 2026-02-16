@@ -16,41 +16,48 @@ class MenuCallback(CallbackData, prefix="main"):
 
 
 def get_start_btns(
-    *,
-    user_id: int,
-    sizes: tuple[int] = (2,)):
-    
+        *,
+        user_id: int,
+        sizes: tuple[int] = (2,)):
     keyboard = InlineKeyboardBuilder()
 
     keyboard.add(InlineKeyboardButton(text='Политика ПДН', url=f"{os.getenv('URL')}/site/privacy_policy"))
     keyboard.add(InlineKeyboardButton(text='Оферта', url=f"{os.getenv('URL')}/site/terms_of_service"))
-    keyboard.add(InlineKeyboardButton(text='Продолжить', callback_data=MenuCallback(level=1, menu_name='main', user_id=int(user_id)).pack()))
+    keyboard.add(InlineKeyboardButton(text='Продолжить', callback_data=MenuCallback(level=1, menu_name='main',
+                                                                                    user_id=int(user_id)).pack()))
 
     return keyboard.adjust(*sizes).as_markup()
 
 
 def get_main_btns(
-    sizes: tuple = (1, 1, 2, 2, 2),
+        sizes: tuple = (1, 1, 2, 2, 2),
 ):
     keyboard = InlineKeyboardBuilder()
 
-    keyboard.add(InlineKeyboardButton(text='🛍 Купить подписку', callback_data=MenuCallback(level=2, menu_name='subscribes').pack()))
-    keyboard.add(InlineKeyboardButton(text='🔎 Проверить подписку', callback_data=MenuCallback(level=4, menu_name='check').pack()))
-    keyboard.add(InlineKeyboardButton(text='📲 Установить VPN', callback_data=MenuCallback(level=5, menu_name='help').pack()))
-    keyboard.add(InlineKeyboardButton(text='👫 Пригласить', callback_data=MenuCallback(level=1, menu_name='invite').pack()))
-    keyboard.add(InlineKeyboardButton(text='❓ FAQ', callback_data=MenuCallback(level=1, menu_name='faq').pack()))
+    keyboard.add(InlineKeyboardButton(text='🛍 Купить подписку',
+                                      callback_data=MenuCallback(level=2, menu_name='subscribes').pack()))
+    keyboard.add(InlineKeyboardButton(text='🔎 Проверить подписку',
+                                      callback_data=MenuCallback(level=4, menu_name='check').pack()))
+    keyboard.add(
+        InlineKeyboardButton(text='📲 Установить VPN', callback_data=MenuCallback(level=5, menu_name='help').pack()))
+    keyboard.add(
+        InlineKeyboardButton(text='👫 Пригласить', callback_data=MenuCallback(level=1, menu_name='invite').pack()))
+    keyboard.add(
+        InlineKeyboardButton(text='❓ Частые вопросы', callback_data=MenuCallback(level=7, menu_name='faq').pack()))
     keyboard.add(InlineKeyboardButton(text='☎️ Поддержка', url="https://t.me/skynetaivpn_support"))
-    keyboard.add(InlineKeyboardButton(text='🛒 Другие продукты', callback_data=MenuCallback(level=6, menu_name='other_products').pack()))
-    keyboard.add(InlineKeyboardButton(text='📄 Оферта | Политика', callback_data=MenuCallback(level=1, menu_name='policy').pack()))
+    keyboard.add(InlineKeyboardButton(text='🛒 Другие продукты',
+                                      callback_data=MenuCallback(level=6, menu_name='other_products').pack()))
+    keyboard.add(InlineKeyboardButton(text='📄 Оферта | Политика',
+                                      callback_data=MenuCallback(level=1, menu_name='policy').pack()))
 
     return keyboard.adjust(*sizes).as_markup()
 
 
 def menu_btn(sizes: tuple[int] = (1,)):
     keyboard = InlineKeyboardBuilder()
-    
+
     keyboard.add(InlineKeyboardButton(
-        text=f"⬅️ Назад", 
+        text=f"⬅️ Назад",
         callback_data=MenuCallback(level=1, menu_name='main').pack()
     ))
 
@@ -60,12 +67,12 @@ def menu_btn(sizes: tuple[int] = (1,)):
 def choose_device_btns(sizes: tuple = (2, 2, 2, 1)):
     keyboard = get_inlineMix_btns(
         btns={
-            '📱 Android': MenuCallback(level=5, menu_name='android').pack(), 
-            '🍏 Iphone': MenuCallback(level=5, menu_name='iphone').pack(), 
-            '🖥 Windows': MenuCallback(level=5, menu_name='windows').pack(), 
-            '💻 MacOS': MenuCallback(level=5, menu_name='macos').pack(), 
+            '📱 Android': MenuCallback(level=5, menu_name='android').pack(),
+            '🍏 Iphone': MenuCallback(level=5, menu_name='iphone').pack(),
+            '🖥 Windows': MenuCallback(level=5, menu_name='windows').pack(),
+            '💻 MacOS': MenuCallback(level=5, menu_name='macos').pack(),
             '🐧 Linux': MenuCallback(level=5, menu_name='linux').pack(),
-            '📺 AndroidTV': MenuCallback(level=5, menu_name='androidtv').pack(), 
+            '📺 AndroidTV': MenuCallback(level=5, menu_name='androidtv').pack(),
             "⬅ Назад": MenuCallback(level=1, menu_name='main').pack()
         },
         sizes=sizes
@@ -95,6 +102,7 @@ def succes_pay_btns(user: User, sizes: tuple = (1,)):
     )
     return keyboard
 
+
 def succes_pay_btns_for_gb(user: User, sizes: tuple = (1,)):
     keyboard = get_inlineMix_btns(
         btns={
@@ -108,17 +116,51 @@ def succes_pay_btns_for_gb(user: User, sizes: tuple = (1,)):
 
 def other_products_btns(level: int, sizes: tuple[int] = (1,)):
     keyboard = InlineKeyboardBuilder()
-    
+
     keyboard.add(InlineKeyboardButton(
-        text=f"📲 Скачивание видео из Соцсетей", 
+        text=f"📲 Скачивание видео из Соцсетей",
         url="https://t.me/Skynet_download_bot"
     ))
     keyboard.add(InlineKeyboardButton(
-        text=f"📫 Наш телеграм канал", 
+        text=f"📫 Наш телеграм канал",
         url="https://t.me/Sky_Net_AI"
     ))
     keyboard.add(InlineKeyboardButton(
-        text=f"⬅️ Назад", 
+        text=f"⬅️ Назад",
+        callback_data=MenuCallback(level=1, menu_name='main').pack()
+    ))
+
+    return keyboard.adjust(*sizes).as_markup()
+
+
+def get_faq_list_btns(faq_list, sizes: tuple[int] = (1,)):
+    """Клавиатура со списком вопросов FAQ"""
+    keyboard = InlineKeyboardBuilder()
+
+    for faq in faq_list:
+        keyboard.add(InlineKeyboardButton(
+            text=f"❓ {faq.ask}",
+            callback_data=MenuCallback(level=7, menu_name=f'faq_{faq.id}').pack()
+        ))
+
+    keyboard.add(InlineKeyboardButton(
+        text="⬅️ Назад",
+        callback_data=MenuCallback(level=1, menu_name='main').pack()
+    ))
+
+    return keyboard.adjust(*sizes).as_markup()
+
+
+def get_faq_back_btn(sizes: tuple[int] = (1,)):
+    """Кнопка назад к списку FAQ"""
+    keyboard = InlineKeyboardBuilder()
+
+    keyboard.add(InlineKeyboardButton(
+        text="⬅️ К списку вопросов",
+        callback_data=MenuCallback(level=7, menu_name='faq').pack()
+    ))
+    keyboard.add(InlineKeyboardButton(
+        text="🏠 В меню",
         callback_data=MenuCallback(level=1, menu_name='main').pack()
     ))
 
@@ -126,10 +168,10 @@ def other_products_btns(level: int, sizes: tuple[int] = (1,)):
 
 
 def get_tariffs_btns(
-    tariffs,
-    sizes: tuple[int] = (1,),
-    *,
-    extra_gb_url: str | None = None,
+        tariffs,
+        sizes: tuple[int] = (1,),
+        *,
+        extra_gb_url: str | None = None,
 ):
     keyboard = InlineKeyboardBuilder()
 
@@ -161,38 +203,33 @@ def get_pay_btns(tariff: Tariff, user_id: int, sizes: tuple = (1,)):
     keyboard = InlineKeyboardBuilder()
 
     keyboard.add(InlineKeyboardButton(
-        text=f"💳 Оплатить", 
+        text=f"💳 Оплатить",
         url=f"{os.getenv('URL')}/payment/payment_page?tariff_id={tariff.id}&telegram_id={user_id}"
     ))
     keyboard.add(InlineKeyboardButton(
-        text=f"⬅️ Назад", 
+        text=f"⬅️ Назад",
         callback_data=MenuCallback(level=2, menu_name='main').pack()
     ))
 
     return keyboard.adjust(*sizes).as_markup()
 
 
-
-
 def get_callback_btns(
-    *,
-    btns: dict[str, str],
-    sizes: tuple[int] = (2,)):
-
+        *,
+        btns: dict[str, str],
+        sizes: tuple[int] = (2,)):
     keyboard = InlineKeyboardBuilder()
 
     for text, data in btns.items():
-        
         keyboard.add(InlineKeyboardButton(text=text, callback_data=data))
 
     return keyboard.adjust(*sizes).as_markup()
 
 
 def get_url_btns(
-    *,
-    btns: dict[str, str],
-    sizes: tuple[int] = (2,)):
-
+        *,
+        btns: dict[str, str],
+        sizes: tuple[int] = (2,)):
     keyboard = InlineKeyboardBuilder()
 
     for text, url in btns.items():
@@ -201,12 +238,11 @@ def get_url_btns(
     return keyboard.adjust(*sizes).as_markup()
 
 
-#Создать микс из CallBack и URL кнопок
+# Создать микс из CallBack и URL кнопок
 def get_inlineMix_btns(
-    *,
-    btns: dict[str, str],
-    sizes: tuple[int] = (2,)):
-
+        *,
+        btns: dict[str, str],
+        sizes: tuple[int] = (2,)):
     keyboard = InlineKeyboardBuilder()
 
     for text, value in btns.items():
@@ -216,7 +252,3 @@ def get_inlineMix_btns(
             keyboard.add(InlineKeyboardButton(text=text, callback_data=value))
 
     return keyboard.adjust(*sizes).as_markup()
-
-
-
-

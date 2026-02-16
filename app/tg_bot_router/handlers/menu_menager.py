@@ -1,12 +1,13 @@
 from html import escape
 from typing import Optional
 from datetime import datetime
+import asyncio
 import os
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram import types
 
-from app.database.queries import orm_get_faq, orm_change_user_tariff, orm_get_servers, orm_get_tariff, orm_get_tariffs, orm_get_user_by_tgid, orm_get_user_servers
+from app.database.queries import orm_get_faq, orm_get_faq_by_id, orm_change_user_tariff, orm_get_servers, orm_get_tariff, orm_get_tariffs, orm_get_user_by_tgid, orm_get_user_servers
 from app.utils.days_to_month import days_to_str
 from app.tg_bot_router.kbds.inline import (
     MenuCallback,
@@ -16,6 +17,8 @@ from app.tg_bot_router.kbds.inline import (
     get_pay_btns,
     get_start_btns,
     get_tariffs_btns,
+    get_faq_list_btns,
+    get_faq_back_btn,
     install_btns,
     menu_btn,
     other_products_btns
@@ -49,11 +52,6 @@ async def main_menu(session: AsyncSession, level, menu_name, user_id: Optional[i
     elif menu_name == 'faq':
         caption="<b>Часто задаваемые вопросы:</b>"
 
-        faq = await orm_get_faq(session)
-
-        for i in faq:
-            caption += f"\n\n<b>❓ {i.ask}</b>\n✅ {i.answer}"
-
 
     if include_image:
         baner = types.FSInputFile("media/img/main_logo_bg.jpg")
@@ -73,7 +71,7 @@ async def buy_subscribe(
     tariffs = await orm_get_tariffs(session)
     servers = await orm_get_servers(session)
 
-    caption = "<b>⚡️ Вы покупаете премиум подписку на SKYNET VPN</b>\n\n● Возможность подключить любые устройства\n● До 8 устройств одновременно\n● Без лимитов и ограничений по скорости\n\n<b>Список поддерживаемых устройств:</b>\n\nAndroid (Android 7.0 или новее.) | Windows (Windows 8.1 или новее.) | iOS, iPadOS (iOS 16.0 или новее.) | macOS процессоры M  (macOS 13.0 или новее) | macOS  c процессором Intel (macOS 11.0 или новее.) | Android TV ( Android 7.0 или новее.) | Linux\n\n<b>🌍 Доступные страны:</b>\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать\n 🏳️ - Лимит по обходу белых списков 30 ГБ каждый месяц\n"
+    caption = "<b>⚡️ Вы покупаете премиум подписку на SKYNET VPN</b>\n\n● Возможность подключить любые устройства\n● До 8 устройств одновременно\n● Без лимитов и ограничений по скорости\n\n<b>Список поддерживаемых устройств:</b>\n\nAndroid (Android 7.0 или новее.) | Windows (Windows 8.1 или новее.) | iOS, iPadOS (iOS 16.0 или новее.) | macOS процессоры M  (macOS 13.0 или новее) | macOS  c процессором Intel (macOS 11.0 или новее.) | Android TV ( Android 7.0 или новее.) | Linux\n\n<b>🌍 Доступные страны:</b>\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать\n 🏳️ - Лимит по обходу белых списков 30 ГБ каждый месяц\n 🎭 - обходят блокировки VLESS\n 🎭 - обходят блокировки VLESS\n ⚡️⚡ - супербыстрое соединение\n"
 
     for server in servers:
         if server.id == servers[-1].id:
@@ -158,6 +156,17 @@ async def check_subscribe(
             f"├ Срок: {days}\n"
             f"├ Количество устройств: {user.ips}\n"
             f"└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n"
+        )
+
+        # Предупреждение для пробного 1-дневного тарифа
+        if DAY10_ID and user.tariff_id == DAY10_ID:
+            caption += (
+                "⚠️ <b>Внимание:</b> после окончания пробного периода "
+                "автоматически подключится месячный тариф за 299 ₽.\n"
+                "Нажмите «Отменить подписку», если не хотите автопродления.\n\n"
+            )
+
+        caption += (
             "<b>Ваша ссылка на ключ. 🔑</b>\n\n"
             "Нажмите 1 раз чтобы скопировать:\n\n"
             f"<pre><code>{escape(url)}</code></pre>"
@@ -181,13 +190,21 @@ async def check_subscribe(
             f"└ оплачено до {user.sub_end.strftime('%d-%m-%Y')}\n\n"
             "Нажмите «Продлить подписку», оплатите тариф и после оплаты обновите информацию.\n\n"
         )
+
+        btns = {
+            "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+            "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
+        }
+
+        # Если автопродление ещё не отменено — показываем кнопку отмены
+        if has_tariff:
+            btns["❌ Отменить автопродление"] = MenuCallback(level=4, menu_name='cancel').pack()
+
+        btns["🔄 Обновить ключ"] = MenuCallback(level=4, menu_name='check').pack()
+        btns["⬅️ Назад"] = MenuCallback(level=1, menu_name='main').pack()
+
         keyboard = get_inlineMix_btns(
-            btns={
-                "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
-                "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
-                "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
-                "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
-            },
+            btns=btns,
             sizes=(1,)
         )
         return caption, keyboard
@@ -314,6 +331,32 @@ async def other_products(level: int, menu_name: str):
     return caption, keyboard
 
 
+async def faq_menu(session: AsyncSession, level: int, menu_name: str) -> tuple:
+    """FAQ: список вопросов или конкретный ответ"""
+
+    # Конкретный вопрос: menu_name = "faq_123"
+    if menu_name.startswith("faq_"):
+        try:
+            faq_id = int(menu_name.split("_")[1])
+        except (IndexError, ValueError):
+            return "❌ Вопрос не найден.", menu_btn()
+
+        faq = await orm_get_faq_by_id(session, faq_id)
+        if not faq:
+            return "❌ Вопрос не найден.", menu_btn()
+
+        caption = f"<b>❓ {faq.ask}</b>\n\n✅ {faq.answer}"
+        return caption, get_faq_back_btn()
+
+    # Список всех вопросов
+    faq_list = await orm_get_faq(session)
+    if not faq_list:
+        return "Вопросов пока нет.", menu_btn()
+
+    caption = "<b>❓ Часто задаваемые вопросы</b>\n\nВыберите интересующий вопрос:"
+    return caption, get_faq_list_btns(faq_list)
+
+
 async def get_menu_content(
     session: AsyncSession,
     level: int,
@@ -335,10 +378,7 @@ async def get_menu_content(
         return await help_menu(level, menu_name)
     elif level == 6:
         return await other_products(level, menu_name)
+    elif level == 7:
+        return await faq_menu(session, level, menu_name)
     else:
         return await start_message(session, level, menu_name, user_id)
-
-
-
-
-

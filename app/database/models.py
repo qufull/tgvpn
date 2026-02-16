@@ -27,7 +27,7 @@ class User(Base):
 
 class Tariff(Base):
     __tablename__ = 'tariffs'
-    
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     days: Mapped[int] = mapped_column(Integer())
     ips: Mapped[int] = mapped_column(Integer())
@@ -64,8 +64,9 @@ class Server(Base):
     login: Mapped[str] = mapped_column(String(50), nullable=False)
     password: Mapped[str] = mapped_column(String(100), nullable=False)
     need_gb: Mapped[bool] = mapped_column(Boolean(), default=False)
+    sort_order: Mapped[int] = mapped_column(Integer(), default=0)
 
- 
+
 class UserServer(Base):
     __tablename__ = 'users_servers'
 
@@ -75,8 +76,3 @@ class UserServer(Base):
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("servers.id"))
 
     server = relationship(argument=Server)
-
-   
-
-
-

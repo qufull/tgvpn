@@ -108,13 +108,19 @@ async def orm_add_server(
         password: str,
         need_gb: bool = False
 ):
+    # Новый сервер встаёт в конец списка
+    from sqlalchemy import func as sa_func
+    result = await session.execute(select(sa_func.max(Server.sort_order)))
+    max_order = result.scalar() or 0
+
     session.add(Server(
         name=name,
         url=url,
         indoub_id=indoub_id,
         login=login,
         password=password,
-        need_gb=need_gb
+        need_gb=need_gb,
+        sort_order=max_order + 1
     ))
     await session.commit()
 
@@ -136,7 +142,7 @@ async def orm_update_server(
 
 
 async def orm_get_servers(session: AsyncSession):
-    query = select(Server).order_by(Server.id.asc())
+    query = select(Server).order_by(Server.sort_order.asc(), Server.id.asc())
     result = await session.execute(query)
     return result.scalars().all()
 
@@ -202,6 +208,21 @@ async def orm_delete_user_servers_by_si(session: AsyncSession, server_id: str):
     query = delete(UserServer).where(UserServer.server_id == server_id)
     await session.execute(query)
     await session.commit()
+
+
+async def orm_swap_server_order(session: AsyncSession, server_id_1: int, server_id_2: int):
+    """Меняет местами sort_order двух серверов"""
+    s1 = await orm_get_server(session, server_id_1)
+    s2 = await orm_get_server(session, server_id_2)
+    if not s1 or not s2:
+        return False
+
+    q1 = update(Server).where(Server.id == server_id_1).values(sort_order=s2.sort_order)
+    q2 = update(Server).where(Server.id == server_id_2).values(sort_order=s1.sort_order)
+    await session.execute(q1)
+    await session.execute(q2)
+    await session.commit()
+    return True
 
 
 # Tariff
@@ -339,4 +360,3 @@ async def orm_get_last_payment(session: AsyncSession, user_id: UUID):
     payment = result.scalar_one_or_none()
 
     return payment.id if payment else 0
-

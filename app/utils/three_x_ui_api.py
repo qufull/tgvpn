@@ -29,7 +29,7 @@ class ThreeXUIServer:
             'password': self.password,
             'twoFactorCode': ''
         }
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.post(url=self.url + 'login', json=data)
             if response.status_code == 200:
                 data = response.json()
@@ -50,7 +50,8 @@ class ThreeXUIServer:
         expiry_time: int,
         tg_id: str,
         name: str,
-        total_gb: int = 0
+        total_gb: int = 0,
+        flow: str = "xtls-rprx-vision"
     ):
         if not self.cookies:
             await self.auth()
@@ -73,12 +74,13 @@ class ThreeXUIServer:
                     "comment": name,
                     "tgId": str(tg_id),
                     "subId": uuid.split('-')[-1],
-                    "totalGB": traffic_limit
+                    "totalGB": traffic_limit,
+                    "flow": flow
                 }]
             })
         }
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.post(
                 url=self.url + "panel/api/inbounds/addClient",
                 json=data,
@@ -103,7 +105,8 @@ class ThreeXUIServer:
         limit_ip: int,
         expiry_time: int,
         tg_id: str,
-        total_gb: int = 0
+        total_gb: int = 0,
+        flow: str = "xtls-rprx-vision"
     ):
         if not self.cookies:
             await self.auth()
@@ -127,12 +130,13 @@ class ThreeXUIServer:
                     "tgId": str(tg_id),
                     "subId": uuid.split('-')[-1],
                     "comment": name,
-                    "totalGB": traffic_limit
+                    "totalGB": traffic_limit,
+                    "flow": flow
                 }]
             })
         }
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.post(
                 url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
                 json=data,
@@ -153,7 +157,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/getClientTrafficsById/{uuid}",
                 cookies=self.cookies
@@ -181,7 +185,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
                 cookies=self.cookies
@@ -223,7 +227,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.post(
                 url=self.url + f"panel/api/inbounds/{self.indoub_id}/delClient/{uuid}",
                 cookies=self.cookies
@@ -244,7 +248,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.post(
                 url=f"{self.url}panel/api/inbounds/{self.indoub_id}/resetClientTraffic/{email}",
                 cookies=self.cookies
@@ -266,7 +270,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient() as client:
+        async with AsyncClient(verify=False) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
                 cookies=self.cookies

@@ -450,12 +450,9 @@ async def check_subscription_expiry(bot: Bot):
 DAY10_ID = int(os.getenv("TARIFF_DAY10_ID", "0") or 0)
 MONTH300_ID = int(os.getenv("TARIFF_MONTH300_ID", "0") or 0)
 
+
 async def recurent_payment(bot: Bot):
-    """Автоматическое продление подписок через Robokassa
-    Правило:
-    - если истёк тариф 10₽/день -> выставляем рекуррент на 300₽/месяц
-    - иначе продлеваем текущий тариф
-    """
+    """Автоматическое продление подписок через Robokassa"""
     async with async_session_maker() as session:
         users = await orm_get_subscribers(session)
         today = datetime.combine(date.today(), time.min)
@@ -485,7 +482,7 @@ async def recurent_payment(bot: Bot):
                 logger.warning(f"Тариф {renew_tariff_id} не найден")
                 continue
 
-            # Создаём новый рекуррентный платёж (УЖЕ на renew_tariff_id)
+            # Создаём новый рекуррентный платёж
             await orm_new_payment(
                 session,
                 tariff_id=renew_tariff_id,
@@ -494,42 +491,61 @@ async def recurent_payment(bot: Bot):
             )
             invoice_id = await orm_get_last_payment_id(session)
 
-            # 📌 Описание в чеке (то, что ты просила "в описании тарифа")
+            # --- ИСПРАВЛЕНИЕ 1: Строгая типизация суммы ---
+            # Приводим к строке с 2 знаками, чтобы MD5 и OutSum совпадали
+            price_str = "{:.2f}".format(float(tariff.price))
+
+            # 📌 Описание в чеке
             item_name = f"Подписка SkynetVPN на {days_to_str(tariff.days)}"
             if DAY10_ID and MONTH300_ID and user.tariff_id == DAY10_ID:
                 item_name += " (после 1 дня автоматически подключится тариф 300 ₽/месяц)"
 
+            # Обрезаем имя, если слишком длинное (требование касс - макс 128 символов)
+            item_name = item_name[:128]
+
+            # --- ИСПРАВЛЕНИЕ 2: Формирование JSON чека ---
             receipt = {
                 "sno": "patent",
+                # Проверьте, соответствует ли это настройкам в ЛК Робокассы (usn_income, patent и т.д.)
                 "items": [
                     {
                         "name": item_name,
                         "quantity": 1,
-                        "sum": float(tariff.price),
+                        "sum": price_str,  # Передаем строкой
                         "payment_method": "full_payment",
                         "payment_object": "service",
-                        "tax": "vat10"
+                        "tax": "none"  # Проверьте ставку НДС (vat10, vat20, none)
                     },
                 ]
             }
+            # Кодируем чек. separators убирает пробелы, чтобы URL не ломался
+            receipt_json = json.dumps(receipt, ensure_ascii=False, separators=(',', ':'))
 
-            base_string = f"{os.getenv('SHOP_ID')}:{tariff.price}:{invoice_id}:{os.getenv('PASSWORD_1')}"
+            # --- ИСПРАВЛЕНИЕ 3: Расчет подписи ---
+            # Используем price_str вместо tariff.price
+            base_string = f"{os.getenv('SHOP_ID')}:{price_str}:{invoice_id}:{os.getenv('PASSWORD_1')}"
             signature_value = hashlib.md5(base_string.encode("utf-8")).hexdigest()
 
             try:
                 async with AsyncClient() as client:
+                    # Формируем данные
+                    data_payload = {
+                        "MerchantLogin": os.getenv("SHOP_ID"),
+                        "InvoiceID": str(invoice_id),
+                        "PreviousInvoiceID": str(last_payment),
+                        "Description": "SkynetVPN Auto-renew",  # Лучше латиницей
+                        "SignatureValue": signature_value,
+                        "OutSum": price_str,
+                        "Receipt": receipt_json  # <--- ИСПРАВЛЕНИЕ 4: Раскомментировано!
+                    }
+
+                    # Логируем данные перед отправкой для отладки
+                    logger.info(f"DEBUG PAYLOAD for {user.telegram_id}: {data_payload}")
+
                     response = await client.post(
                         "https://auth.robokassa.ru/Merchant/Recurring",
-                        data={
-                            "MerchantLogin": os.getenv("SHOP_ID"),
-                            "InvoiceID": int(invoice_id),
-                            "PreviousInvoiceID": int(last_payment),
-                            "Description": f"Автопродление SkynetVPN: {item_name}",
-                            "SignatureValue": signature_value,
-                            "OutSum": float(tariff.price),
-                            # Если у тебя подключены чеки и Robokassa это принимает в твоей схеме — добавь:
-                            # "Receipt": json.dumps(receipt, ensure_ascii=False),
-                        }
+                        data=data_payload,
+                        headers={'Content-Type': 'application/x-www-form-urlencoded'}
                     )
 
                     logger.info(
@@ -539,15 +555,23 @@ async def recurent_payment(bot: Bot):
                     if response.status_code == 200:
                         logger.info(f"Запрос на автопродление отправлен для {user.telegram_id}")
                     else:
+                        # Если ошибка не 200, логируем тело ответа
                         logger.error(f"Ошибка Robokassa: {response.text}")
-                        await bot.send_message(
-                            user.telegram_id,
-                            "⚠️ Не удалось автоматически продлить подписку. "
-                            "Пожалуйста, продлите вручную: /start → Купить подписку"
-                        )
+
+                        # --- ИСПРАВЛЕНИЕ 5: Защита от блокировки бота ---
+                        try:
+                            await bot.send_message(
+                                user.telegram_id,
+                                "⚠️ Не удалось автоматически продлить подписку. "
+                                "Пожалуйста, продлите вручную: /start → Купить подписку"
+                            )
+                        except Exception as e_msg:
+                            # Если юзер заблокировал бота, просто пишем в лог и идем дальше
+                            logger.warning(
+                                f"Не удалось отправить сообщение пользователю {user.telegram_id} (возможно бот заблокирован): {e_msg}")
 
             except Exception as e:
-                logger.error(f"Ошибка автопродления для {user.telegram_id}: {e}")
+                logger.error(f"Критическая ошибка автопродления для {user.telegram_id}: {e}")
 
 
 async def reset_monthly_traffic(bot: Bot):
