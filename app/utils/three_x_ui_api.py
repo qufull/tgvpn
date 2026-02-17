@@ -29,7 +29,7 @@ class ThreeXUIServer:
             'password': self.password,
             'twoFactorCode': ''
         }
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.post(url=self.url + 'login', json=data)
             if response.status_code == 200:
                 data = response.json()
@@ -80,7 +80,7 @@ class ThreeXUIServer:
             })
         }
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.post(
                 url=self.url + "panel/api/inbounds/addClient",
                 json=data,
@@ -136,7 +136,7 @@ class ThreeXUIServer:
             })
         }
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.post(
                 url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
                 json=data,
@@ -157,7 +157,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/getClientTrafficsById/{uuid}",
                 cookies=self.cookies
@@ -185,7 +185,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
                 cookies=self.cookies
@@ -220,14 +220,14 @@ class ThreeXUIServer:
                 f"fp={stream_settings.get('realitySettings', {}).get('settings', {}).get('fingerprint', 'none')}&"
                 f"sni={stream_settings.get('realitySettings', {}).get('target', 'none').split(':')[0]}&"
                 f"sid={stream_settings.get('realitySettings', {}).get('shortIds', [''])[0]}&"
-                f"spx=%2F&flow={client_obj.get('flow', '')}#{quote(client_obj['email'].split('_')[0])}"
-            )
+                f"spx=%2F&flow={client_obj.get('flow', '')}#{quote(self.name if self.name else client_obj['email'].split('_')[0])}"
+               )
 
     async def delete_client(self, uuid: str):
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.post(
                 url=self.url + f"panel/api/inbounds/{self.indoub_id}/delClient/{uuid}",
                 cookies=self.cookies
@@ -248,7 +248,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.post(
                 url=f"{self.url}panel/api/inbounds/{self.indoub_id}/resetClientTraffic/{email}",
                 cookies=self.cookies
@@ -270,7 +270,7 @@ class ThreeXUIServer:
         if not self.cookies:
             await self.auth()
 
-        async with AsyncClient(verify=False) as client:
+        async with AsyncClient(verify=False, timeout=10) as client:
             response = await client.get(
                 url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
                 cookies=self.cookies

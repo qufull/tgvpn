@@ -23,7 +23,7 @@ from app.database.queries import (
     orm_get_user_servers,
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
-from app.payment_router.payment_views import recurent_payment, check_subscription_expiry,notify_expired_users
+from app.payment_router.payment_views import recurent_payment, check_subscription_expiry, notify_expired_users
 
 
 @asynccontextmanager
@@ -79,7 +79,6 @@ app.include_router(payment_router, tags=['Payment'])
 app.include_router(api_router, tags=['Rest API'])
 
 
-
 @app.get("/subscription")
 async def generate_subscription_config(user_token: str, session: AsyncSession = Depends(get_async_session)):
     user = await orm_get_user_by_tgid(session, int(user_token))
@@ -89,7 +88,7 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
 
     # 3. Генерируем vless:// ссылки для каждого сервера
     config_lines = []
-    
+
     servers = await orm_get_servers(session)
     threex_panels = []
     for server in servers:
@@ -105,17 +104,18 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
         vless_url = None
         for panel in threex_panels:
             if panel.id == user_server.server_id:
-                vless_url = await panel.get_client_vless(user_server.tun_id)
-                if panel.need_gb == True:
-                    trafic = await panel.client_remain_trafic(user_server.tun_id) or 0
+                try:
+                    vless_url = await panel.get_client_vless(user_server.tun_id)
+                    if panel.need_gb == True:
+                        trafic = await panel.client_remain_trafic(user_server.tun_id) or 0
+                except Exception as e:
+                    logger.warning(f"Сервер {user_server.server_id} недоступен: {e}")
 
-
-        
         if not vless_url:
             logger.warning(f"Пользователь не найден на сервере {user_server.server_id}")
             continue
         config_lines.append(vless_url)
-    
+
     if not config_lines:
         raise HTTPException(status_code=404, detail="Не найдены сервера")
     subscription_content = "\n".join(config_lines)
@@ -125,17 +125,17 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
         media_type="text/plain; charset=utf-8"
     )
 
-    response.headers['profile-title'] = "base64:"+base64.b64encode('⚡️ SkynetVPN'.encode('utf-8')).decode('latin-1')
-    response.headers["announce"] = "base64:"+base64.b64encode(f"🚀 Нажмите сюда, чтобы перейти в нашего бота\n\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать \n\nОтображаемое количество трафика относиться только к обходу белых списков.".encode('utf-8')).decode('latin-1')
+    response.headers['profile-title'] = "base64:" + base64.b64encode('⚡️ SkynetVPN'.encode('utf-8')).decode('latin-1')
+    response.headers["announce"] = "base64:" + base64.b64encode(
+        f"🚀 Нажмите сюда, чтобы перейти в нашего бота\n\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать \n\nОтображаемое количество трафика относиться только к обходу белых списков.".encode(
+            'utf-8')).decode('latin-1')
     response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"
-    response.headers["subscription-userinfo"] = f"expire={int(user.sub_end.timestamp())}; upload={trafic[0]}; download={trafic[1]}; total={trafic[2]}"
+    response.headers[
+        "subscription-userinfo"] = f"expire={int(user.sub_end.timestamp())}; upload={trafic[0]}; download={trafic[1]}; total={trafic[2]}"
     response.headers["X-Frame-Options"] = 'SAMEORIGIN'
     response.headers["Referrer-Policy"] = 'no-referrer-when-downgrade'
     response.headers["X-Content-Type-Options"] = 'nosniff'
     response.headers["Permissions-Policy"] = 'geolocation=(), microphone=()'
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
 
-
     return response
-
-

@@ -16,7 +16,7 @@ from app.database.queries import (
     orm_get_servers,
     orm_get_subscribers,
     orm_get_user_by_tgid,
-    orm_get_user_servers, 
+    orm_get_user_servers,
     orm_get_users,
     orm_get_tariffs,
     orm_get_user,
@@ -24,7 +24,6 @@ from app.database.queries import (
     orm_update_user
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
-
 
 api_router = APIRouter(prefix='/api')
 
@@ -39,7 +38,7 @@ async def get_clients(session: AsyncSession = Depends(get_async_session)):
         orders,
         key=lambda o: o.created or datetime.min
     )
-    tariffs =  await orm_get_tariffs(session)
+    tariffs = await orm_get_tariffs(session)
     for order in orders:
         data = []
         tariff = 0
@@ -48,10 +47,12 @@ async def get_clients(session: AsyncSession = Depends(get_async_session)):
                 tariff = i
         if order.tariff_id > 0 or order.sub_end:
             if tariff:
-                data = [order.telegram_id, order.name, order.email, order.ips, order.sub_end.strftime('%d.%m.%Y'), days_to_str(tariff.days)]
+                data = [order.telegram_id, order.name, order.email, order.ips, order.sub_end.strftime('%d.%m.%Y'),
+                        days_to_str(tariff.days)]
             else:
-                data = [order.telegram_id, order.name, order.email, order.ips, order.sub_end.strftime('%d.%m.%Y'), "Тариф удален" if order.tariff_id else "Подписка отменена"]
-            
+                data = [order.telegram_id, order.name, order.email, order.ips, order.sub_end.strftime('%d.%m.%Y'),
+                        "Тариф удален" if order.tariff_id else "Подписка отменена"]
+
             result.append(data)
 
     return result
@@ -59,8 +60,8 @@ async def get_clients(session: AsyncSession = Depends(get_async_session)):
 
 @api_router.post("/update_client")
 async def update_clients(
-    data: UpdateClientGS,
-    session: AsyncSession = Depends(get_async_session)
+        data: UpdateClientGS,
+        session: AsyncSession = Depends(get_async_session)
 ):
     now = datetime.now()
     user = await orm_get_user_by_tgid(session, data.user_id)
@@ -77,9 +78,9 @@ async def update_clients(
     user_servers = await orm_get_user_servers(session, user.id)
     servers = await orm_get_servers(session)
 
-    new_date = datetime(int(date[0]), int(date[1]), int(date[2])+1, now.hour, now.minute, now.second, now.microsecond)
+    new_date = datetime(int(date[0]), int(date[1]), int(date[2]) + 1, now.hour, now.minute, now.second, now.microsecond)
     new_unix_date = int(new_date.timestamp() * 1000)
-    
+
     threex_panels = []
     for i in servers:
         threex_panels.append(ThreeXUIServer(
@@ -91,7 +92,7 @@ async def update_clients(
             i.need_gb,
             i.name
         ))
-    
+
     for server in user_servers:
         for panel in threex_panels:
             if panel.id != server.server_id:
@@ -121,7 +122,8 @@ async def update_clients(
     )
 
     for admin in admins:
-        await bot.send_message(admin.telegram_id, f"✅ Данные изменены для пользователя {user.name}\nДата: {new_date.strftime('%d.%m.%Y')}\nКоличество устройств: {data.devices}")
+        await bot.send_message(admin.telegram_id,
+                               f"✅ Данные изменены для пользователя {user.name}\nДата: {new_date.strftime('%d.%m.%Y')}\nКоличество устройств: {data.devices}")
 
 
 @api_router.get("/subscribtion")
@@ -140,8 +142,10 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
             ),
             media_type="text/plain; charset=utf-8"
         )
-        response.headers['profile-title'] = "base64:" + base64.b64encode('⚡️ SkynetVPN'.encode('utf-8')).decode('latin-1')
-        response.headers["announce"] = "base64:" + base64.b64encode("🚀 Нажмите сюда, тут можно продлить подписку".encode('utf-8')).decode('latin-1')
+        response.headers['profile-title'] = "base64:" + base64.b64encode('⚡️ SkynetVPN'.encode('utf-8')).decode(
+            'latin-1')
+        response.headers["announce"] = "base64:" + base64.b64encode(
+            "🚀 Нажмите сюда, тут можно продлить подписку".encode('utf-8')).decode('latin-1')
         response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"
         return response
 
@@ -152,7 +156,7 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
     servers = await orm_get_servers(session)
     threex_panels = [
         ThreeXUIServer(
-            s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb
+            s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb, s.name
         )
         for s in servers
     ]
@@ -174,11 +178,14 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
         # Ищем панель
         for panel in threex_panels:
             if panel.id == server.id:
-                vless_url = await panel.get_client_vless(user_server.tun_id)
-                if panel.need_gb:
-                    trafic = await panel.client_remain_trafic(user_server.tun_id) or 0
-                if vless_url:
-                    config_lines.append(vless_url)
+                try:
+                    vless_url = await panel.get_client_vless(user_server.tun_id)
+                    if panel.need_gb:
+                        trafic = await panel.client_remain_trafic(user_server.tun_id) or 0
+                    if vless_url:
+                        config_lines.append(vless_url)
+                except Exception as e:
+                    logger.warning(f"Сервер {server.name} (id={server.id}) недоступен: {e}")
                 break
 
     if not config_lines:
@@ -194,8 +201,8 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
         ("🚀 Нажмите сюда, чтобы перейти в нашего бота\n\n"
          "👑 - без рекламы на YouTube\n"
          "🎧 - YouTube можно сворачивать \n"
-         "🎭 - обходят блокировки VLESS \n"
-         "⚡️ - супербыстрое соединение\n\n"
+         "🎭 - обходят блокировки VLESS\n"
+         "⚡️ - быстрая скорость\n\n"
          "Отображаемое количество трафика относиться только к обходу белых списков.").encode('utf-8')
     ).decode('latin-1')
     response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"
@@ -210,5 +217,3 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
 
     return response
-
-

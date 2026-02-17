@@ -31,7 +31,11 @@ async def start(message: types.Message, command: CommandObject, session: AsyncSe
 
     media, reply_markup = await get_menu_content(session, level=0, menu_name="start", user_id=message.from_user.id)
 
-    await message.answer_video(media.media, caption=media.caption, reply_markup=reply_markup)
+    await message.answer_photo(
+        photo=media.media,
+        caption=media.caption,
+        reply_markup=reply_markup
+    )
 
 
 @user_private_router.message(Command('menu'))

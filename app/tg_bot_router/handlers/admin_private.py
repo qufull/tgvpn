@@ -464,6 +464,8 @@ async def add_server_password(message: types.Message, state: FSMContext, session
 
 @admin_private_router.callback_query(StateFilter(None), F.data.startswith("delete_server"))
 async def delete_server(callback_query: types.CallbackQuery, session: AsyncSession):
+    await callback_query.answer("Начинаю удаление сервера, пожалуйста, подождите...")
+
     try:
         server_id = int(callback_query.data.split("_")[-1])
         server = await orm_get_server(session, server_id)
@@ -479,17 +481,21 @@ async def delete_server(callback_query: types.CallbackQuery, session: AsyncSessi
 
         if users_servers:
             for i in users_servers:
-                await threex_panel.delete_client(i.tun_id)
+                try:
+                    await threex_panel.delete_client(i.tun_id)
+                except Exception as api_err:
+                    # Логируем ошибку, но не прерываем удаление остальных клиентов из БД
+                    logger.error(f"Не удалось удалить клиента {i.tun_id} из панели: {api_err}")
 
         await orm_delete_user_servers_by_si(session, server_id)
         await orm_delete_server(session, server_id)
+
         await callback_query.message.delete()
-        await callback_query.message.answer(f"✅ сервер удален", reply_markup=admin_menu_kbrd())
-        await callback_query.answer()
+        await callback_query.message.answer(f"✅ Сервер успешно удален", reply_markup=admin_menu_kbrd())
+
     except Exception as e:
         logger.error(f"Ошибка, не удалось удалить сервер", exc_info=True)
-        await callback_query.message.answer("❌ Ошибка: сервер не найден", reply_markup=admin_menu_kbrd())
-        await callback_query.answer()
+        await callback_query.message.answer("❌ Ошибка при удалении сервера", reply_markup=admin_menu_kbrd())
 
 
 # FAQ
@@ -643,6 +649,9 @@ async def skip_photos(message: types.Message, state: FSMContext):
     await state.set_state(FSMSendLetter.recipients)
 
 
+import asyncio  # Понадобится для паузы между отправками
+
+
 @admin_private_router.callback_query(FSMSendLetter.recipients)
 async def send_letter(
         callback: types.CallbackQuery,
@@ -650,7 +659,15 @@ async def send_letter(
         session: AsyncSession,
         bot: Bot
 ):
+    # 1. Сразу убираем "часики" с кнопки
+    await callback.answer()
+
+    # 2. Сохраняем данные и СРАЗУ очищаем состояние, чтобы избежать двойных нажатий
     data = await state.get_data()
+    await state.clear()
+
+    # 3. Меняем сообщение, чтобы админ видел, что процесс пошел, и убираем кнопки
+    await callback.message.edit_text("⏳ Рассылка началась, пожалуйста, подождите...")
 
     text: str = data.get("text")
     pictures: list[str] = data.get("pictures", [])
@@ -663,7 +680,6 @@ async def send_letter(
     sent = 0
 
     for user in users:
-        # Не отправляем рассылку самому себе (админу)
         if user.telegram_id == callback.from_user.id:
             continue
 
@@ -683,24 +699,24 @@ async def send_letter(
                     chat_id=user.telegram_id,
                     text=text,
                     parse_mode="HTML",
-                    disable_web_page_preview=True,  # опционально, чтобы не раздувало предпросмотром
+                    disable_web_page_preview=True,
                 )
             sent += 1
+
+            # ВАЖНО: Добавляем небольшую паузу, чтобы не словить FloodWait от Telegram
+            await asyncio.sleep(0.05)
 
         except TelegramBadRequest:
             continue
         except Exception as e:
-            print(f"Ошибка при отправке {user.telegram_id}: {e}")
+            logger.error(f"Ошибка при отправке {user.telegram_id}: {e}")
 
+    # Отправляем новое сообщение с результатами и возвращаем клавиатуру
     await callback.message.answer(
         f"✅ Рассылка завершена\n"
         f"Отправлено: {sent}",
         reply_markup=admin_menu_kbrd()
     )
-
-    await state.clear()
-    await callback.answer()
-
 
 @admin_private_router.message(StateFilter("*"), F.text == CANCEL_TEXT)
 async def cancel_by_button(message: types.Message, state: FSMContext):
