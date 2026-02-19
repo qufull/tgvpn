@@ -576,8 +576,9 @@ async def recurent_payment(bot: Bot):
 
 async def reset_monthly_traffic(bot: Bot):
     """Ежемесячный сброс трафика на сервере обхода белых списков.
-    Для тех, у кого был докупленный/увеличенный лимит (>30ГБ):
-    новый лимит = (остаток в байтах) + 30ГБ, затем reset usage.
+    Если у пользователя осталось больше свободных ГБ, чем заложено в его тарифе,
+    оставляем этот остаток. В противном случае устанавливаем стандартный лимит тарифа.
+    Затем сбрасываем статистику использования (reset usage).
     """
     async with async_session_maker() as session:
         users = await orm_get_users(session)
@@ -603,6 +604,11 @@ async def reset_monthly_traffic(bot: Bot):
             if not user.sub_end or user.sub_end < today:
                 continue
 
+            # 1. Получаем тариф пользователя, чтобы узнать его базовый лимит
+            tariff = await orm_get_tariff(session, user.tariff_id)
+            # Если тариф по какой-то причине не найден, берем 30 ГБ как страховку
+            base_limit_gb = tariff.trafic if tariff else 30
+
             user_servers = await orm_get_user_servers(session, user.id)
 
             for us in user_servers:
@@ -622,53 +628,55 @@ async def reset_monthly_traffic(bot: Bot):
                         down = down or 0
                         total = total or 0
 
-                        # остаток в байтах
+                        # Считаем остаток
                         used = up + down
                         remaining = total - used
                         if remaining < 0:
                             remaining = 0
 
-                        # признак "есть докупка": лимит больше 30ГБ
-                        total_gb = int(total // GB)
+                        remaining_gb = int(remaining // GB)
 
-                        if total_gb > 30:
-                            # хотим: остаток + 30ГБ => новый лимит в ГБ
-                            new_total_bytes = remaining + (30 * GB)
-                            new_total_gb = int(new_total_bytes // GB)
+                        # 2. Сравниваем остаток с лимитом ИМЕННО ЭТОГО тарифа
+                        new_total_gb = max(base_limit_gb, remaining_gb)
 
-                            # берём текущие параметры клиента, чтобы ничего не сломать
-                            client = await panel.get_client_by_uuid(us.tun_id)
-                            if not client:
-                                logger.warning(f"Не найден клиент для бонуса: tg={user.telegram_id} panel={panel.id} uuid={us.tun_id}")
-                            else:
-                                await panel.edit_client(
-                                    uuid=us.tun_id,
-                                    name=client.get("comment") or user.name,
-                                    email=client.get("email") or email,
-                                    limit_ip=int(client.get("limitIp") or user.ips or 1),
-                                    expiry_time=int(client.get("expiryTime") or int(user.sub_end.timestamp() * 1000)),
-                                    tg_id=str(client.get("tgId") or user.telegram_id),
-                                    total_gb=new_total_gb,
-                                )
+                        # Обновляем лимит клиента в панели
+                        client = await panel.get_client_by_uuid(us.tun_id)
+                        if not client:
+                            logger.warning(
+                                f"Не найден клиент для обновления лимита: tg={user.telegram_id} panel={panel.id} uuid={us.tun_id}")
+                        else:
+                            await panel.edit_client(
+                                uuid=us.tun_id,
+                                name=client.get("comment") or user.name,
+                                email=client.get("email") or email,
+                                limit_ip=int(client.get("limitIp") or user.ips or 1),
+                                expiry_time=int(client.get("expiryTime") or int(user.sub_end.timestamp() * 1000)),
+                                tg_id=str(client.get("tgId") or user.telegram_id),
+                                total_gb=new_total_gb,
+                            )
+
+                            if remaining_gb > base_limit_gb:
                                 bonus_count += 1
                                 logger.info(
-                                    f"Бонус +30ГБ от остатка: tg={user.telegram_id} panel={panel.name} "
-                                    f"total={total_gb}GB used={(used//GB)}GB remaining={(remaining//GB)}GB -> new_total={new_total_gb}GB"
+                                    f"Сохранён остаток >{base_limit_gb}ГБ: tg={user.telegram_id} panel={panel.name} "
+                                    f"remaining={remaining_gb}GB -> new_total={new_total_gb}GB"
                                 )
 
-                        # reset usage (после него "остаток" станет равен новому лимиту)
+                        # Сбрасываем использованный трафик до 0 (теперь лимит = new_total_gb)
                         result = await panel.reset_client_traffic(email)
                         if result:
                             reset_count += 1
-                            logger.info(f"Сброшен трафик для {user.name} на {panel.name}")
+                            if remaining_gb <= base_limit_gb:
+                                logger.info(
+                                    f"Сброшен трафик для {user.name} на {panel.name} до базовых {base_limit_gb}GB")
 
                     except Exception as e:
-                        logger.error(f"Ошибка сброса/бонуса трафика для {user.name} ({user.telegram_id}): {e}")
+                        logger.error(f"Ошибка обновления трафика для {user.name} ({user.telegram_id}): {e}")
 
-                    break  # нашли панель для этого us
+                    break  # Переходим к следующему серверу пользователя
 
-        logger.info(f"Ежемесячный сброс завершён. Сброшено: {reset_count}, бонусов применено: {bonus_count}")
-
+        logger.info(
+            f"Ежемесячный сброс завершён. Выполнен сброс: {reset_count}, сохранено увеличенных остатков: {bonus_count}")
 
 async def notify_expired_users(bot: Bot):
     """Уведомления пользователям с истёкшей подпиской (5, 15, 30 дней)"""
