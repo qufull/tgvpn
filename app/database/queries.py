@@ -360,3 +360,29 @@ async def orm_get_last_payment(session: AsyncSession, user_id: UUID):
     payment = result.scalar_one_or_none()
 
     return payment.id if payment else 0
+
+async def orm_get_referral_count(session: AsyncSession, telegram_id: int) -> int:
+    """Сколько людей пригласил пользователь"""
+    from sqlalchemy import func as sa_func
+    result = await session.execute(
+        select(sa_func.count(User.id)).where(User.invited_by == telegram_id)
+    )
+    return result.scalar() or 0
+
+
+async def orm_add_referral_bonus(session: AsyncSession, referrer_tg_id: int, bonus_days: int, referred_user_id) -> datetime:
+    """Добавить дни реферёру и отметить что бонус выдан"""
+    from datetime import timedelta
+    referrer = await orm_get_user_by_tgid(session, referrer_tg_id)
+    now = datetime.now()
+    base = referrer.sub_end if (referrer.sub_end and referrer.sub_end > now) else now
+    new_end = base + timedelta(days=bonus_days)
+
+    await session.execute(
+        update(User).where(User.telegram_id == referrer_tg_id).values(sub_end=new_end)
+    )
+    await session.execute(
+        update(User).where(User.id == referred_user_id).values(referral_rewarded=True)
+    )
+    await session.commit()
+    return new_end

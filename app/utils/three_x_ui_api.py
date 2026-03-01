@@ -2,7 +2,7 @@ import json
 from urllib.parse import quote
 
 from httpx import AsyncClient
-
+from datetime import datetime
 from app.setup_logger import logger
 
 
@@ -21,7 +21,12 @@ class ThreeXUIServer:
         return json.loads(string)
 
     def dict_to_sting(self, obj):
-        return json.dumps(obj, indent=4, ensure_ascii=False)
+        def default(o):
+            if isinstance(o, datetime):
+                return int(o.timestamp() * 1000)
+            return str(o)
+
+        return json.dumps(obj, indent=4, ensure_ascii=False, default=default)
 
     async def auth(self):
         data = {
@@ -43,15 +48,15 @@ class ThreeXUIServer:
             self.cookies = response.cookies
 
     async def add_client(
-        self,
-        uuid: str,
-        email: str,
-        limit_ip: int,
-        expiry_time: int,
-        tg_id: str,
-        name: str,
-        total_gb: int = 0,
-        flow: str = "xtls-rprx-vision"
+            self,
+            uuid: str,
+            email: str,
+            limit_ip: int,
+            expiry_time: int,
+            tg_id: str,
+            name: str,
+            total_gb: int = 0,
+            flow: str = "xtls-rprx-vision"
     ):
         if not self.cookies:
             await self.auth()
@@ -80,38 +85,41 @@ class ThreeXUIServer:
             })
         }
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.post(
-                url=self.url + "panel/api/inbounds/addClient",
-                json=data,
-                cookies=self.cookies
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    logger.info(f"Добавлен клиент {name}")
-                    return True
-                logger.warning(f"Не удалось добавить клиента {name}: {data.get('msg')}")
-                return False
+        try:
+            async with AsyncClient(verify=False, timeout=30.0) as client:
+                response = await client.post(
+                    url=self.url + "panel/api/inbounds/addClient",
+                    json=data,
+                    cookies=self.cookies
+                )
+                if response.status_code == 200:
+                    data_resp = response.json()
+                    if data_resp.get('success'):
+                        logger.info(f"Добавлен клиент {name}")
+                        return True
+                    logger.warning(f"Не удалось добавить клиента {name}: {data_resp.get('msg')}")
+                    return False
 
-            logger.warning(f"Не удалось добавить клиента {name}: {self.url} - {response.status_code}")
+                logger.warning(f"Не удалось добавить клиента {name}: {self.url} - {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка соединения (timeout) при добавлении {name}: {e}")
             return False
 
     async def edit_client(
-        self,
-        uuid: str,
-        name: str,
-        email: str,
-        limit_ip: int,
-        expiry_time: int,
-        tg_id: str,
-        total_gb: int = 0,
-        flow: str = "xtls-rprx-vision"
+            self,
+            uuid: str,
+            name: str,
+            email: str,
+            limit_ip: int,
+            expiry_time: int,
+            tg_id: str,
+            total_gb: int = 0,
+            flow: str = "xtls-rprx-vision"
     ):
         if not self.cookies:
             await self.auth()
 
-        # total_gb передаём в ГБ (как в add_client). Здесь приводим к байтам только для need_gb панелей.
         if self.need_gb:
             traffic_limit = (total_gb if total_gb else 30) * 1073741824
         else:
@@ -136,21 +144,84 @@ class ThreeXUIServer:
             })
         }
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.post(
-                url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
-                json=data,
-                cookies=self.cookies
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    logger.info(f"Изменен клиент {email}")
-                    return True
-                logger.warning(f"Не удалось изменить клиента {email}: {data.get('msg')}")
-                return False
+        try:
+            async with AsyncClient(verify=False, timeout=30.0) as client:
+                response = await client.post(
+                    url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
+                    json=data,
+                    cookies=self.cookies
+                )
+                if response.status_code == 200:
+                    data_resp = response.json()
+                    if data_resp.get('success'):
+                        logger.info(f"Изменен клиент {email}")
+                        return True
+                    logger.warning(f"Не удалось изменить клиента {email}: {data_resp.get('msg')}")
+                    return False
 
-            logger.warning(f"Не удалось изменить клиента {email}: {response.status_code}")
+                logger.warning(f"Не удалось изменить клиента {email}: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка соединения (timeout) при изменении {email}: {e}")
+            return False
+
+    async def edit_client(
+            self,
+            uuid: str,
+            name: str,
+            email: str,
+            limit_ip: int,
+            expiry_time: int,
+            tg_id: str,
+            total_gb: int = 0,
+            flow: str = "xtls-rprx-vision"
+    ):
+        if not self.cookies:
+            await self.auth()
+
+        if self.need_gb:
+            traffic_limit = (total_gb if total_gb else 30) * 1073741824
+        else:
+            traffic_limit = 0
+
+        data = {
+            "id": self.indoub_id,
+            "settings": self.dict_to_sting({
+                "clients": [{
+                    "id": uuid,
+                    "alterId": 0,
+                    "email": email,
+                    "limitIp": limit_ip,
+                    "expiryTime": expiry_time,
+                    "enable": True,
+                    "tgId": str(tg_id),
+                    "subId": uuid.split('-')[-1],
+                    "comment": name,
+                    "totalGB": traffic_limit,
+                    "flow": flow
+                }]
+            })
+        }
+
+        try:
+            async with AsyncClient(verify=False, timeout=30.0) as client:
+                response = await client.post(
+                    url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
+                    json=data,
+                    cookies=self.cookies
+                )
+                if response.status_code == 200:
+                    data_resp = response.json()
+                    if data_resp.get('success'):
+                        logger.info(f"Изменен клиент {email}")
+                        return True
+                    logger.warning(f"Не удалось изменить клиента {email}: {data_resp.get('msg')}")
+                    return False
+
+                logger.warning(f"Не удалось изменить клиента {email}: {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка соединения (timeout) при изменении {email}: {e}")
             return False
 
     async def client_remain_trafic(self, uuid: str):

@@ -245,6 +245,7 @@ class FSMAddServer(StatesGroup):
     need_gb = State()
 
     server_to_change = None
+    edit_mode = None  # 'name' или 'all'
 
 
 @admin_private_router.message(F.text == '🌐 Сервера')
@@ -315,28 +316,79 @@ async def sort_server(callback_query: types.CallbackQuery, session: AsyncSession
     await get_servers(callback_query.message, session)
 
 
-@admin_private_router.callback_query(StateFilter(None), F.data.startswith("edit_server"))
-@admin_private_router.callback_query(StateFilter(None), F.data.startswith("add_server"))
-async def add_server(callback_query: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    if callback_query.data.startswith("edit_server"):
-        server_id = int(callback_query.data.split('_')[-1])
-        FSMAddServer.server_to_change = await orm_get_server(session, server_id)
+@admin_private_router.callback_query(StateFilter(None), F.data.startswith("edit_server_"))
+async def edit_server_choice(callback_query: types.CallbackQuery, session: AsyncSession):
+    # Этот хендлер ловит нажатие "Изменить" из общего списка серверов
+    server_id = int(callback_query.data.split('_')[-1])
+    server = await orm_get_server(session, server_id)
 
-    await state.set_state(FSMAddServer.name)
+    # Предлагаем выбор
+    btns = {
+        "📝 Только название": f"edit_srv_name_{server.id}",
+        "🔄 Изменить полностью": f"edit_srv_all_{server.id}"
+    }
     await callback_query.message.answer(
-        f"<b>Вы начали {'изменение' if FSMAddServer.server_to_change else 'добавление'} сервера</b>\nДля отмены напишите /cancel\n\n<b>Введите название сервера:</b>",
-        reply_markup=types.ReplyKeyboardRemove()
+        f"Что именно вы хотите изменить в сервере <b>{server.name}</b>?",
+        reply_markup=get_inlineMix_btns(btns=btns, sizes=(1, 1))
     )
     await callback_query.answer()
 
 
-@admin_private_router.message(FSMAddServer.name, F.text)
-async def add_server_url(message: types.Message, state: FSMContext):
-    if FSMAddServer.server_to_change and message.text == '.':
-        await state.update_data(name=FSMAddServer.server_to_change.name)
+@admin_private_router.callback_query(StateFilter(None), F.data.startswith("add_server"))
+@admin_private_router.callback_query(StateFilter(None), F.data.startswith("edit_srv_name_"))
+@admin_private_router.callback_query(StateFilter(None), F.data.startswith("edit_srv_all_"))
+async def start_add_or_edit_server(callback_query: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if callback_query.data.startswith("add_server"):
+        FSMAddServer.server_to_change = None
+        FSMAddServer.edit_mode = 'all'
+        msg_text = "<b>Вы начали добавление сервера</b>\nДля отмены напишите /cancel\n\n<b>Введите название сервера:</b>"
     else:
-        await state.update_data(name=message.text)
+        server_id = int(callback_query.data.split('_')[-1])
+        FSMAddServer.server_to_change = await orm_get_server(session, server_id)
 
+        if callback_query.data.startswith("edit_srv_name_"):
+            FSMAddServer.edit_mode = 'name'
+            msg_text = f"<b>Вы начали изменение названия сервера.</b>\nТекущее: {FSMAddServer.server_to_change.name}\nДля отмены напишите /cancel\n\n<b>Введите новое название:</b>"
+        else:
+            FSMAddServer.edit_mode = 'all'
+            msg_text = f"<b>Вы начали полное изменение сервера.</b>\n(Отправьте <b>.</b> чтобы оставить текущее значение параметра)\nДля отмены напишите /cancel\n\n<b>Введите новое название сервера:</b>"
+
+    await state.set_state(FSMAddServer.name)
+    await callback_query.message.answer(msg_text, reply_markup=types.ReplyKeyboardRemove())
+    await callback_query.answer()
+
+
+@admin_private_router.message(FSMAddServer.name, F.text)
+async def process_server_name(message: types.Message, state: FSMContext, session: AsyncSession):
+    if FSMAddServer.server_to_change and message.text == '.':
+        new_name = FSMAddServer.server_to_change.name
+    else:
+        new_name = message.text
+
+    await state.update_data(name=new_name)
+
+    # Если мы в режиме "только имя" - обновляем и прерываем FSM
+    if FSMAddServer.server_to_change and FSMAddServer.edit_mode == 'name':
+        server = FSMAddServer.server_to_change
+        update_data = {
+            'name': new_name,
+            'url': server.url,
+            'indoub_id': server.indoub_id,
+            'login': server.login,
+            'password': server.password,
+            'need_gb': server.need_gb
+        }
+        await orm_update_server(session, update_data, server.id)
+
+        # Очищаем переменные
+        FSMAddServer.server_to_change = None
+        FSMAddServer.edit_mode = None
+
+        await message.answer("✅ Название сервера успешно изменено", reply_markup=admin_menu_kbrd())
+        await state.clear()
+        return
+
+    # Если мы идем дальше (полное изменение или новый сервер)
     await state.set_state(FSMAddServer.url)
     await message.answer("Введите url на 3x-ui панель сервера:")
 
@@ -396,7 +448,7 @@ async def add_server_need_gb(message: types.Message, state: FSMContext):
 
 
 @admin_private_router.message(FSMAddServer.need_gb, F.text)
-async def add_server_password(message: types.Message, state: FSMContext, session: AsyncSession):
+async def add_server_need_gb_step(message: types.Message, state: FSMContext, session: AsyncSession):
     if FSMAddServer.server_to_change and message.text == '.':
         await state.update_data(need_gb=FSMAddServer.server_to_change.need_gb)
     else:
@@ -410,10 +462,13 @@ async def add_server_password(message: types.Message, state: FSMContext, session
     data = await state.get_data()
 
     if FSMAddServer.server_to_change:
+        # Режим ПОЛНОГО изменения сервера
         await orm_update_server(session, data, FSMAddServer.server_to_change.id)
         FSMAddServer.server_to_change = None
-        await message.answer("✅ Сервер изменен", reply_markup=admin_menu_kbrd())
+        FSMAddServer.edit_mode = None
+        await message.answer("✅ Сервер полностью изменен", reply_markup=admin_menu_kbrd())
     else:
+        # Добавление нового сервера
         await orm_add_server(
             session,
             name=data['name'],

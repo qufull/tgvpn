@@ -16,15 +16,20 @@ user_private_router = Router()
 
 @user_private_router.message(Command('start'))
 async def start(message: types.Message, command: CommandObject, session: AsyncSession):
-    try:
-        refer_id = int(command.args)
-    except:
-        refer_id = None
-        logger.warning("Wrong refer id")
+    refer_id = None
+    if command.args:
+        try:
+            refer_id = int(command.args)
+            # не даём приглашать самого себя
+            if refer_id == message.from_user.id:
+                refer_id = None
+        except ValueError:
+            logger.warning(f"Неверный refer_id: {command.args}")
+
     user_name = message.from_user.username or message.from_user.full_name
     await orm_add_user(
-        session, 
-        name=user_name, 
+        session,
+        name=user_name,
         telegram_id=message.from_user.id,
         invited_by=refer_id
     )

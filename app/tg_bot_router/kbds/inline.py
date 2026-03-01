@@ -116,14 +116,9 @@ def succes_pay_btns_for_gb(user: User, sizes: tuple = (1,)):
 
 def other_products_btns(level: int, sizes: tuple[int] = (1,)):
     keyboard = InlineKeyboardBuilder()
-
-    keyboard.add(InlineKeyboardButton(
-        text=f"📲 Скачивание видео из Соцсетей",
-        url="https://t.me/Skynet_download_bot"
-    ))
     keyboard.add(InlineKeyboardButton(
         text=f"📫 Наш телеграм канал",
-        url="https://t.me/Sky_Net_AI"
+        url=""
     ))
     keyboard.add(InlineKeyboardButton(
         text=f"⬅️ Назад",

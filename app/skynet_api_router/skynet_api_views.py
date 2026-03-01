@@ -1,10 +1,9 @@
 import base64
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
 
 from app.database.engine import get_async_session
 from app.utils.days_to_month import days_to_str
@@ -78,8 +77,8 @@ async def update_clients(
     user_servers = await orm_get_user_servers(session, user.id)
     servers = await orm_get_servers(session)
 
-    new_date = datetime(int(date[0]), int(date[1]), int(date[2]) + 1, now.hour, now.minute, now.second, now.microsecond)
-    new_unix_date = int(new_date.timestamp() * 1000)
+    new_date = datetime(int(date[0]), int(date[1]), int(date[2]), now.hour, now.minute, now.second, now.microsecond)
+    new_unix_date = new_date+ timedelta(days=1)
 
     threex_panels = []
     for i in servers:

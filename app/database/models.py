@@ -23,6 +23,7 @@ class User(Base):
     invited_by: Mapped[int] = mapped_column(BigInteger, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     super_user: Mapped[bool] = mapped_column(Boolean, default=False)
+    referral_rewarded: Mapped[bool] = mapped_column(Boolean, default=False)  # добавить
 
 
 class Tariff(Base):
