@@ -33,8 +33,6 @@ bot_router = APIRouter(prefix='/bot')
 @bot_router.post("")
 async def webhook(request: Request):
     payload = await request.json()
-    logger.warning(f"WEBHOOK HIT chat={payload.get('message', {}).get('chat', {}).get('id')} keys={list(payload.keys())}")
-
     update = types.Update.model_validate(payload, context={"bot": bot})
     await dp.feed_update(bot, update)
     return {"ok": True}

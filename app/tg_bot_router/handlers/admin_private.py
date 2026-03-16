@@ -1,15 +1,16 @@
-import html
+from datetime import timedelta
 from typing import Optional
 from uuid import uuid4
+import asyncio
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, StateFilter
-from aiogram.filters.logic import or_f
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InputMediaPhoto, Message
+from aiogram.types import InputMediaPhoto
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.engine import async_session_maker
 from app.database.models import Tariff
 from app.tg_bot_router.common.link_worker import process_server_url
 from app.tg_bot_router.filters.user_filter import AdminFilter
@@ -38,12 +39,88 @@ from app.database.queries import (
     orm_get_subscribers,
     orm_delete_user_servers_by_si,
     orm_get_user_servers_by_si,
-    orm_swap_server_order,
+    orm_swap_server_order, orm_update_user, orm_get_user_servers,
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
 
 admin_private_router = Router()
 admin_private_router.message.filter(AdminFilter())
+
+async def background_newsletter(bot: Bot, telegram_ids: list[int], text: str, pictures: list[str]):
+    """
+    Фоновая рассылка сообщений пользователям (тихий режим).
+    """
+    sent = 0
+    failed = 0
+
+    for tg_id in telegram_ids:
+        try:
+            if pictures:
+                media = [
+                    InputMediaPhoto(
+                        media=pic,
+                        caption=text if i == 0 else None,
+                        parse_mode="HTML"
+                    )
+                    for i, pic in enumerate(pictures)
+                ]
+                await bot.send_media_group(chat_id=tg_id, media=media)
+            else:
+                await bot.send_message(
+                    chat_id=tg_id,
+                    text=text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            sent += 1
+
+        except TelegramBadRequest:
+            # Пользователь заблокировал бота или чат не найден
+            failed += 1
+        except Exception as e:
+            # Любая другая ошибка
+            logger.error(f"Ошибка рассылки для {tg_id}: {e}")
+            failed += 1
+
+        # ❗️ ВАЖНО: Пауза 0.05 сек (20 сообщений в секунду), чтобы Telegram не забанил бота за спам
+        await asyncio.sleep(0.05)
+
+    # Итоговый отчет пишем чисто для себя в логи
+    logger.info(f"🏁 Рассылка завершена. Успешно доставлено: {sent}, Ошибок (блокировок): {failed}")
+
+
+async def background_process_clients(api_tasks: list, action: str):
+    """
+    Фоновая обработка задач с ПРЕДОХРАНИТЕЛЕМ от мертвых серверов.
+    """
+    success_count = 0
+    fail_count = 0
+    consecutive_errors = 0  # 🛡 Наш предохранитель
+
+    for task in api_tasks:
+        # Если 5 запросов подряд упали — сервер точно недоступен. Хватит стучать.
+        if consecutive_errors >= 5:
+            logger.error(f"🚨 Сервер не отвечает 5 раз подряд! Принудительно отменяем оставшиеся задачи '{action}'.")
+            break  # Выходим из цикла
+
+        try:
+            result = await task
+            if result:
+                success_count += 1
+                consecutive_errors = 0  # При любом успехе сбрасываем счетчик ошибок
+            else:
+                fail_count += 1
+                consecutive_errors += 1  # Запрос не прошел (500 ошибка, таймаут или отказ)
+        except Exception as e:
+            logger.error(f"Сбой при выполнении фоновой задачи: {e}")
+            fail_count += 1
+            consecutive_errors += 1
+
+        # Даем панели передохнуть 0.5 секунды
+        await asyncio.sleep(0.5)
+
+    # Итоговый отчет в логи
+    logger.info(f"🏁 Фоновая задача '{action}' завершена. Успешно: {success_count}, Ошибок: {fail_count}, Не выполнено из-за сбоя: {len(api_tasks) - success_count - fail_count}")
 
 
 def detect_parse_mode(text: str) -> str | None:
@@ -461,98 +538,157 @@ async def add_server_need_gb_step(message: types.Message, state: FSMContext, ses
 
     data = await state.get_data()
 
-    if FSMAddServer.server_to_change:
+    # ❗️ Сразу очищаем FSM! Бот готов принимать новые команды.
+    server_to_change = FSMAddServer.server_to_change
+    await state.clear()
+    FSMAddServer.server_to_change = None
+    FSMAddServer.edit_mode = None
+
+    if server_to_change:
         # Режим ПОЛНОГО изменения сервера
-        await orm_update_server(session, data, FSMAddServer.server_to_change.id)
-        FSMAddServer.server_to_change = None
-        FSMAddServer.edit_mode = None
+        await orm_update_server(session, data, server_to_change.id)
         await message.answer("✅ Сервер полностью изменен", reply_markup=admin_menu_kbrd())
     else:
-        # Добавление нового сервера
-        await orm_add_server(
-            session,
-            name=data['name'],
+        # Отправляем сообщение о начале проверки
+
+        # 🛡 ШАГ 1: ПРОВЕРКА СВЯЗИ (до сохранения в БД)
+        threex_panel = ThreeXUIServer(
+            id=0,  # Пока 0, так как в БД его еще нет
             url=data['url'],
             indoub_id=data['indoub_id'],
             login=data['login'],
             password=data['password'],
-            need_gb=data['need_gb']
+            need_gb=data['need_gb'],
+            name=data['name']
         )
+
+        is_alive = await threex_panel.auth()
+
+        if not is_alive:
+            # Если связи нет — прерываем процесс! Ничего не сохраняем.
+            await message.answer(
+                "❌ <b>Ошибка подключения!</b>\n\n"
+                "Панель недоступна или введены неверные данные (IP, логин, пароль).\n",
+                reply_markup=admin_menu_kbrd(),
+                parse_mode="HTML"
+            )
+            return  # ⛔️ Полный выход из функции
+
+        await orm_add_server(
+            session, name=data['name'], url=data['url'], indoub_id=data['indoub_id'],
+            login=data['login'], password=data['password'], need_gb=data['need_gb']
+        )
+
         users = await orm_get_users(session)
-        servers = await orm_get_servers(session)
-        threex_panel = ThreeXUIServer(
-            0,
-            data['url'],
-            data['indoub_id'],
-            data['login'],
-            data['password'],
-            data['need_gb']
-        )
         server = await orm_get_server_by_ui(session, data['url'], data['indoub_id'])
 
+        threex_panel.id = server.id  # Обновляем ID панели для красивых логов
+
+        tariffs = await orm_get_tariffs(session)
+        tariff_map = {t.id: t.trafic for t in tariffs}
+
+        api_tasks = []
+
+        # ⚙️ ШАГ 3: ФОРМИРУЕМ ЗАДАЧИ
         for user in users:
             if user.sub_end:
-                tariff = None
-                if data['need_gb']:
-                    tariff = await orm_get_tariff(session, user.tariff_id)
-                uuid = uuid4()
-                await orm_add_user_server(
-                    session,
-                    user_id=user.id,
-                    server_id=server.id,
-                    tun_id=str(uuid)
-                )
-                user_server = await orm_get_user_server_by_ti(session, str(uuid))
-                await threex_panel.add_client(
-                    uuid=str(uuid),
+                uuid_str = str(uuid4())
+                await orm_add_user_server(session, user_id=user.id, server_id=server.id, tun_id=uuid_str)
+                user_server = await orm_get_user_server_by_ti(session, uuid_str)
+                traffic = tariff_map.get(user.tariff_id, 0) if data['need_gb'] else 0
+
+                api_tasks.append(threex_panel.add_client(
+                    uuid=uuid_str,
                     email=data['name'] + '_' + str(user_server.id),
                     limit_ip=user.ips,
                     name=user.name,
                     tg_id=str(user.telegram_id),
                     expiry_time=int(user.sub_end.timestamp() * 1000),
-                    total_gb=tariff.trafic if tariff and data['need_gb'] else 0
-                )
-        await message.answer("✅ Сервер добавлен", reply_markup=admin_menu_kbrd())
+                    total_gb=traffic
+                ))
 
-    await state.clear()
+        # 🚀 ШАГ 4: ЗАПУСК ФОНОВОГО ПРОЦЕССА
+        if api_tasks:
+            asyncio.create_task(
+                background_process_clients(
+                    api_tasks=api_tasks,
+                    action=f"Добавление клиентов на сервер «{server.name}»"
+                )
+            )
+
+        # Вывод успешного результата
+        await message.answer(
+            f"✅ <b>Сервер «{server.name}» успешно добавлен!</b>\n\n",
+            reply_markup=admin_menu_kbrd(),
+            parse_mode="HTML"
+        )
 
 
 @admin_private_router.callback_query(StateFilter(None), F.data.startswith("delete_server"))
 async def delete_server(callback_query: types.CallbackQuery, session: AsyncSession):
-    await callback_query.answer("Начинаю удаление сервера, пожалуйста, подождите...")
+    server_id = int(callback_query.data.split("_")[-1])
+    server = await orm_get_server(session, server_id)
+
+    # 1. Защита от фантомных нажатий
+    if not server:
+        await callback_query.answer("❌ Этот сервер уже удален", show_alert=True)
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Убираем часики с кнопки и пишем статус
+    await callback_query.answer("Удаляю...")
 
     try:
-        server_id = int(callback_query.data.split("_")[-1])
-        server = await orm_get_server(session, server_id)
         users_servers = await orm_get_user_servers_by_si(session, server_id)
 
         threex_panel = ThreeXUIServer(
-            id=0,
+            id=server.id,
             url=server.url,
             indoub_id=server.indoub_id,
             login=server.login,
-            password=server.password
+            password=server.password,
+            name=server.name
         )
 
-        if users_servers:
-            for i in users_servers:
-                try:
-                    await threex_panel.delete_client(i.tun_id)
-                except Exception as api_err:
-                    # Логируем ошибку, но не прерываем удаление остальных клиентов из БД
-                    logger.error(f"Не удалось удалить клиента {i.tun_id} из панели: {api_err}")
+        # 🛡 Пытаемся достучаться до панели
+        is_alive = await threex_panel.auth()
 
+        if is_alive and users_servers:
+            # Сервер живой — отправляем задачу на аккуратное удаление клиентов в фон
+            delete_tasks = [threex_panel.delete_client(i.tun_id) for i in users_servers]
+            asyncio.create_task(
+                background_process_clients(
+                    api_tasks=delete_tasks,
+                    action=f"Удаление клиентов с сервера «{server.name}»"
+                )
+            )
+        elif not is_alive:
+            # Сервер мертв. Просто игнорируем панель и пишем в лог.
+            logger.info(f"Сервер «{server.name}» недоступен. Просто удаляем из локальной БД.")
+
+        # 💾 В ЛЮБОМ СЛУЧАЕ: удаляем данные из нашей базы
         await orm_delete_user_servers_by_si(session, server_id)
         await orm_delete_server(session, server_id)
 
-        await callback_query.message.delete()
-        await callback_query.message.answer(f"✅ Сервер успешно удален", reply_markup=admin_menu_kbrd())
+        # Подчищаем сообщения
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+
+        # Формируем понятный ответ для админа
+
+        text = f"✅ <b>Сервер «{server.name}» удален!</b>\n"
+
+
+        await callback_query.message.answer(text, reply_markup=admin_menu_kbrd(), parse_mode="HTML")
 
     except Exception as e:
-        logger.error(f"Ошибка, не удалось удалить сервер", exc_info=True)
-        await callback_query.message.answer("❌ Ошибка при удалении сервера", reply_markup=admin_menu_kbrd())
-
-
+        logger.error(f"Ошибка при удалении сервера: {e}", exc_info=True)
+        await callback_query.message.answer("❌ Произошла ошибка при удалении сервера", reply_markup=admin_menu_kbrd())
 # FAQ
 @admin_private_router.message(StateFilter(None), F.text.lower().contains('частые вопросы'))
 async def get_faq(message: types.Message, session: AsyncSession):
@@ -704,9 +840,6 @@ async def skip_photos(message: types.Message, state: FSMContext):
     await state.set_state(FSMSendLetter.recipients)
 
 
-import asyncio  # Понадобится для паузы между отправками
-
-
 @admin_private_router.callback_query(FSMSendLetter.recipients)
 async def send_letter(
         callback: types.CallbackQuery,
@@ -717,12 +850,9 @@ async def send_letter(
     # 1. Сразу убираем "часики" с кнопки
     await callback.answer()
 
-    # 2. Сохраняем данные и СРАЗУ очищаем состояние, чтобы избежать двойных нажатий
+    # 2. Сохраняем данные и очищаем состояние, чтобы избежать двойных нажатий
     data = await state.get_data()
     await state.clear()
-
-    # 3. Меняем сообщение, чтобы админ видел, что процесс пошел, и убираем кнопки
-    await callback.message.edit_text("⏳ Рассылка началась, пожалуйста, подождите...")
 
     text: str = data.get("text")
     pictures: list[str] = data.get("pictures", [])
@@ -732,46 +862,132 @@ async def send_letter(
     else:
         users = await orm_get_users(session)
 
-    sent = 0
+    # 3. Собираем только ID пользователей (исключаем самого админа)
+    admin_id = callback.from_user.id
+    telegram_ids = [user.telegram_id for user in users if user.telegram_id != admin_id]
 
-    for user in users:
-        if user.telegram_id == callback.from_user.id:
-            continue
+    if not telegram_ids:
+        await callback.message.delete()
+        await callback.message.answer("❌ Нет пользователей для рассылки.", reply_markup=admin_menu_kbrd())
+        return
 
-        try:
-            if pictures:
-                media = [
-                    InputMediaPhoto(
-                        media=pic,
-                        caption=text if i == 0 else None,
-                        parse_mode="HTML"
-                    )
-                    for i, pic in enumerate(pictures)
-                ]
-                await bot.send_media_group(chat_id=user.telegram_id, media=media)
-            else:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-            sent += 1
+    # 4. 🚀 ЗАПУСК ФОНОВОЙ РАССЫЛКИ
+    asyncio.create_task(
+        background_newsletter(
+            bot=bot,
+            telegram_ids=telegram_ids,
+            text=text,
+            pictures=pictures
+        )
+    )
 
-            # ВАЖНО: Добавляем небольшую паузу, чтобы не словить FloodWait от Telegram
-            await asyncio.sleep(0.05)
-
-        except TelegramBadRequest:
-            continue
-        except Exception as e:
-            logger.error(f"Ошибка при отправке {user.telegram_id}: {e}")
-
-    # Отправляем новое сообщение с результатами и возвращаем клавиатуру
+    # 5. Мгновенно отдаем админу управление ботом
+    await callback.message.delete()
     await callback.message.answer(
-        f"✅ Рассылка завершена\n"
-        f"Отправлено: {sent}",
+        f"Рассылка завершена\n"
+        f"Отправлено: {len(telegram_ids)}",
         reply_markup=admin_menu_kbrd()
     )
+
+class AddDaysAll(StatesGroup):
+    days = State()
+
+
+@admin_private_router.message(StateFilter(None), F.text == '➕ Добавить дни')
+async def start_add_days_all(message: types.Message, state: FSMContext):
+    await state.set_state(AddDaysAll.days)
+    await message.answer(
+        "Введите количество дней, которое нужно добавить <b>всем активным</b> подписчикам:",
+        reply_markup=cancel_kbrd(),  # Твоя кнопка отмены
+        parse_mode="HTML"
+    )
+
+
+@admin_private_router.message(AddDaysAll.days, F.text.regexp(r'^\d+$'))
+async def process_add_days_all(message: types.Message, state: FSMContext, session: AsyncSession):
+    days_to_add = int(message.text)
+    users = await orm_get_subscribers(session)
+
+    if not users:
+        await state.clear()
+        await message.answer("❌ Нет пользователей с активной подпиской.", reply_markup=admin_menu_kbrd())
+        return
+
+    # Запускаем тяжелый процесс в фоне
+    asyncio.create_task(
+        background_add_days_process(
+            bot=message.bot,
+            users=users,
+            days=days_to_add,
+            # Передаем session_maker, так как в фоне нужна своя сессия
+            session_maker=async_session_maker
+        )
+    )
+
+    await state.clear()
+    await message.answer(
+        f"Добавлено <b>{days_to_add}</b> дн. для <b>{len(users)}</b> пользователей.\n",
+        reply_markup=admin_menu_kbrd(),
+        parse_mode="HTML"
+    )
+
+
+async def background_add_days_process(bot, users, days, session_maker):
+    """
+    Фоновое обновление даты подписки в БД и на серверах.
+    """
+    async with session_maker() as session:
+        servers = await orm_get_servers(session)
+        # Карта панелей для быстрого доступа
+        panels = [
+            ThreeXUIServer(s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb, s.name)
+            for s in servers
+        ]
+
+        for user in users:
+            try:
+                # 1. Считаем новую дату (от текущей даты окончания)
+                new_date = user.sub_end + timedelta(days=days)
+                expiry_ms = int(new_date.timestamp() * 1000)
+
+                # 2. Обновляем в локальной БД бота
+                await orm_update_user(session, user.id, {'sub_end': new_date})
+                await session.commit()
+
+                # 3. Обновляем на всех серверах этого пользователя
+                user_servers = await orm_get_user_servers(session, user.id)
+                for us in user_servers:
+                    panel = next((p for p in panels if p.id == us.server_id), None)
+                    if not panel:
+                        continue
+
+                    # Авторизуемся и обновляем (edit_client)
+                    if await panel.auth():
+                        # Для edit_client нам нужны текущие ГБ, если включен need_gb
+                        total_gb = 0
+                        if panel.need_gb:
+                            try:
+                                total_gb = await panel.get_total_gb(us.tun_id)
+                            except:
+                                total_gb = 30
+
+                        await panel.edit_client(
+                            uuid=us.tun_id,
+                            name=user.name,
+                            email=f"{panel.name}_{us.id}",
+                            limit_ip=user.ips or 1,
+                            expiry_time=expiry_ms,
+                            tg_id=user.telegram_id,
+                            total_gb=total_gb
+                        )
+
+                    # 🛡 Слип между запросами к API, чтобы не "повесить" панели
+                    await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.error(f"Ошибка при добавлении дней пользователю {user.telegram_id}: {e}")
+
+    logger.info(f"✅ Массовое добавление {days} дней завершено для {len(users)} чел.")
 
 @admin_private_router.message(StateFilter("*"), F.text == CANCEL_TEXT)
 async def cancel_by_button(message: types.Message, state: FSMContext):

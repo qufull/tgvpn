@@ -1,6 +1,8 @@
 from html import escape
 from typing import Optional
 from datetime import datetime
+from aiogram.exceptions import TelegramAPIError,TelegramForbiddenError
+from aiogram.enums import ChatAction
 import asyncio
 import os
 
@@ -358,6 +360,25 @@ async def faq_menu(session: AsyncSession, level: int, menu_name: str) -> tuple:
     return caption, get_faq_list_btns(faq_list)
 
 
+async def support_menu(level: int, menu_name: str) -> tuple:
+    caption = (
+        "<b>Поддержка SKYNET VPN</b>\n\n"
+        "Здесь вы можете найти ответы на частые вопросы или напрямую обратиться к нашему специалисту."
+    )
+
+    # Обязательно замени 'https://t.me/твой_аккаунт_поддержки' на реальную ссылку
+    keyboard = get_inlineMix_btns(
+        btns={
+            "❓ Частые вопросы": MenuCallback(level=7, menu_name='faq').pack(),
+            "💬 Написать в поддержку": "https://t.me/skynetaivpn_support",
+            "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
+        },
+        sizes=(1, 1, 1)
+    )
+
+    return caption, keyboard
+
+
 async def get_menu_content(
     session: AsyncSession,
     level: int,
@@ -381,5 +402,7 @@ async def get_menu_content(
         return await other_products(level, menu_name)
     elif level == 7:
         return await faq_menu(session, level, menu_name)
+    elif level == 8:
+        return await support_menu(level, menu_name)
     else:
         return await start_message(session, level, menu_name, user_id)

@@ -1,369 +1,251 @@
 import json
 from urllib.parse import quote
-
-from httpx import AsyncClient
 from datetime import datetime
+import httpx
+
 from app.setup_logger import logger
+
+# Константа для перевода гигабайт в байты
+GB_BYTES = 1073741824
 
 
 class ThreeXUIServer:
     def __init__(self, id, url, indoub_id, login, password, need_gb=False, name='') -> None:
         self.id = id
-        self.url = url
+        # Гарантируем, что URL заканчивается на слеш
+        self.url = url if url.endswith('/') else f"{url}/"
         self.indoub_id = int(indoub_id)
         self.login = login
         self.password = password
         self.need_gb = need_gb
         self.cookies = None
-        self.name = name
+        self.name = name or f"Server-{id}"
 
-    def strin_to_dict(self, string):
-        return json.loads(string)
+    def _dict_to_string(self, obj: dict) -> str:
+        """Внутренний метод для упаковки настроек в строку (требование 3x-ui)"""
 
-    def dict_to_sting(self, obj):
-        def default(o):
+        def default_encoder(o):
             if isinstance(o, datetime):
                 return int(o.timestamp() * 1000)
             return str(o)
 
-        return json.dumps(obj, indent=4, ensure_ascii=False, default=default)
+        return json.dumps(obj, ensure_ascii=False, default=default_encoder)
 
-    async def auth(self):
+    async def _make_request(self, method: str, endpoint: str, payload: dict = None) -> dict | None:
+        """
+        Универсальный метод для всех запросов.
+        Ловит таймауты, ошибки сети и автоматически авторизуется при необходимости.
+        """
+        # Если нет куки и это не запрос логина — сначала авторизуемся
+        if not self.cookies and endpoint != "login":
+            if not await self.auth():
+                return None  # Прерываем запрос, если авторизация не удалась
+
+        url = f"{self.url}{endpoint}"
+
+        try:
+            # Короткий таймаут (5 сек), чтобы не вешать бота из-за мертвых серверов
+            async with httpx.AsyncClient(verify=False, timeout=5.0) as client:
+                if method.upper() == "GET":
+                    response = await client.get(url, cookies=self.cookies)
+                else:
+                    response = await client.post(url, json=payload, cookies=self.cookies)
+
+                # Обработка успешного запроса логина (сохраняем куки)
+                if endpoint == "login" and response.status_code == 200:
+                    self.cookies = response.cookies
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.warning(f"Ошибка {response.status_code} от сервера {self.name} при запросе {endpoint}")
+                    return None
+
+        except httpx.RequestError as e:
+            logger.error(f"Сетевая ошибка/Таймаут с сервером {self.name} ({self.url}): {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Неизвестная ошибка с сервером {self.name}: {e}")
+            return None
+
+    async def auth(self) -> bool:
+        """Авторизация в панели"""
         data = {
             'username': self.login,
             'password': self.password,
             'twoFactorCode': ''
         }
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.post(url=self.url + 'login', json=data)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    pass
-                else:
-                    logger.warning(f"Не удалось авторизоваться: {self.url} - {data.get('msg')}")
-            else:
-                logger.warning(f"Не удалось авторизоваться: {self.url} - {response.status_code}")
 
-            self.cookies = response.cookies
+        response_data = await self._make_request("POST", "login", data)
+
+        if response_data and response_data.get('success'):
+            return True
+
+        msg = response_data.get('msg') if response_data else 'Нет ответа'
+        logger.warning(f"Не удалось авторизоваться на {self.name}: {msg}")
+        self.cookies = None
+        return False
 
     async def add_client(
-            self,
-            uuid: str,
-            email: str,
-            limit_ip: int,
-            expiry_time: int,
-            tg_id: str,
-            name: str,
-            total_gb: int = 0,
-            flow: str = "xtls-rprx-vision"
-    ):
-        if not self.cookies:
-            await self.auth()
-
-        if self.need_gb:
-            traffic_limit = (total_gb if total_gb else 30) * 1073741824
-        else:
-            traffic_limit = 0
+            self, uuid: str, email: str, limit_ip: int, expiry_time: int,
+            tg_id: str, name: str, total_gb: int = 0, flow: str = "xtls-rprx-vision"
+    ) -> bool:
+        traffic_limit = (total_gb if total_gb else 30) * GB_BYTES if self.need_gb else 0
 
         data = {
             "id": self.indoub_id,
-            "settings": self.dict_to_sting({
+            "settings": self._dict_to_string({
                 "clients": [{
-                    "id": uuid,
-                    "alterId": 0,
-                    "email": email,
-                    "limitIp": limit_ip,
-                    "expiryTime": expiry_time,
-                    "enable": True,
-                    "comment": name,
-                    "tgId": str(tg_id),
-                    "subId": uuid.split('-')[-1],
-                    "totalGB": traffic_limit,
-                    "flow": flow
+                    "id": uuid, "alterId": 0, "email": email, "limitIp": limit_ip,
+                    "expiryTime": expiry_time, "enable": True, "comment": name,
+                    "tgId": str(tg_id), "subId": uuid.split('-')[-1],
+                    "totalGB": traffic_limit, "flow": flow
                 }]
             })
         }
 
-        try:
-            async with AsyncClient(verify=False, timeout=30.0) as client:
-                response = await client.post(
-                    url=self.url + "panel/api/inbounds/addClient",
-                    json=data,
-                    cookies=self.cookies
-                )
-                if response.status_code == 200:
-                    data_resp = response.json()
-                    if data_resp.get('success'):
-                        logger.info(f"Добавлен клиент {name}")
-                        return True
-                    logger.warning(f"Не удалось добавить клиента {name}: {data_resp.get('msg')}")
-                    return False
+        response = await self._make_request("POST", "panel/api/inbounds/addClient", data)
+        if response and response.get('success'):
+            logger.info(f"Добавлен клиент {name} на {self.name}")
+            return True
 
-                logger.warning(f"Не удалось добавить клиента {name}: {self.url} - {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Ошибка соединения (timeout) при добавлении {name}: {e}")
-            return False
+        logger.warning(
+            f"Ошибка добавления клиента {name} на {self.name}: {response.get('msg') if response else 'Сбой сети'}")
+        return False
 
     async def edit_client(
-            self,
-            uuid: str,
-            name: str,
-            email: str,
-            limit_ip: int,
-            expiry_time: int,
-            tg_id: str,
-            total_gb: int = 0,
-            flow: str = "xtls-rprx-vision"
-    ):
-        if not self.cookies:
-            await self.auth()
-
-        if self.need_gb:
-            traffic_limit = (total_gb if total_gb else 30) * 1073741824
-        else:
-            traffic_limit = 0
+            self, uuid: str, name: str, email: str, limit_ip: int, expiry_time: int,
+            tg_id: str, total_gb: int = 0, flow: str = "xtls-rprx-vision"
+    ) -> bool:
+        traffic_limit = (total_gb if total_gb else 30) * GB_BYTES if self.need_gb else 0
 
         data = {
             "id": self.indoub_id,
-            "settings": self.dict_to_sting({
+            "settings": self._dict_to_string({
                 "clients": [{
-                    "id": uuid,
-                    "alterId": 0,
-                    "email": email,
-                    "limitIp": limit_ip,
-                    "expiryTime": expiry_time,
-                    "enable": True,
-                    "tgId": str(tg_id),
-                    "subId": uuid.split('-')[-1],
-                    "comment": name,
-                    "totalGB": traffic_limit,
-                    "flow": flow
+                    "id": uuid, "alterId": 0, "email": email, "limitIp": limit_ip,
+                    "expiryTime": expiry_time, "enable": True, "comment": name,
+                    "tgId": str(tg_id), "subId": uuid.split('-')[-1],
+                    "totalGB": traffic_limit, "flow": flow
                 }]
             })
         }
 
-        try:
-            async with AsyncClient(verify=False, timeout=30.0) as client:
-                response = await client.post(
-                    url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
-                    json=data,
-                    cookies=self.cookies
-                )
-                if response.status_code == 200:
-                    data_resp = response.json()
-                    if data_resp.get('success'):
-                        logger.info(f"Изменен клиент {email}")
-                        return True
-                    logger.warning(f"Не удалось изменить клиента {email}: {data_resp.get('msg')}")
-                    return False
+        response = await self._make_request("POST", f"panel/api/inbounds/updateClient/{uuid}", data)
+        if response and response.get('success'):
+            logger.info(f"Изменен клиент {email} на {self.name}")
+            return True
 
-                logger.warning(f"Не удалось изменить клиента {email}: {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Ошибка соединения (timeout) при изменении {email}: {e}")
+        logger.warning(
+            f"Ошибка изменения клиента {email} на {self.name}: {response.get('msg') if response else 'Сбой сети'}")
+        return False
+
+    async def client_remain_trafic(self, uuid: str) -> tuple | bool:
+        """Возвращает кортеж (up, down, total) в байтах или False"""
+        response = await self._make_request("GET", f"panel/api/inbounds/getClientTrafficsById/{uuid}")
+
+        if not response or not response.get('success'):
             return False
 
-    async def edit_client(
-            self,
-            uuid: str,
-            name: str,
-            email: str,
-            limit_ip: int,
-            expiry_time: int,
-            tg_id: str,
-            total_gb: int = 0,
-            flow: str = "xtls-rprx-vision"
-    ):
-        if not self.cookies:
-            await self.auth()
+        obj_list = response.get('obj')
 
-        if self.need_gb:
-            traffic_limit = (total_gb if total_gb else 30) * 1073741824
-        else:
-            traffic_limit = 0
-
-        data = {
-            "id": self.indoub_id,
-            "settings": self.dict_to_sting({
-                "clients": [{
-                    "id": uuid,
-                    "alterId": 0,
-                    "email": email,
-                    "limitIp": limit_ip,
-                    "expiryTime": expiry_time,
-                    "enable": True,
-                    "tgId": str(tg_id),
-                    "subId": uuid.split('-')[-1],
-                    "comment": name,
-                    "totalGB": traffic_limit,
-                    "flow": flow
-                }]
-            })
-        }
-
-        try:
-            async with AsyncClient(verify=False, timeout=30.0) as client:
-                response = await client.post(
-                    url=self.url + f"panel/api/inbounds/updateClient/{uuid}",
-                    json=data,
-                    cookies=self.cookies
-                )
-                if response.status_code == 200:
-                    data_resp = response.json()
-                    if data_resp.get('success'):
-                        logger.info(f"Изменен клиент {email}")
-                        return True
-                    logger.warning(f"Не удалось изменить клиента {email}: {data_resp.get('msg')}")
-                    return False
-
-                logger.warning(f"Не удалось изменить клиента {email}: {response.status_code}")
-                return False
-        except Exception as e:
-            logger.error(f"Ошибка соединения (timeout) при изменении {email}: {e}")
+        if obj_list is None:
             return False
 
-    async def client_remain_trafic(self, uuid: str):
-        if not self.cookies:
-            await self.auth()
+        # Клиент есть, но ещё ни разу не подключался — статистики нет
+        if len(obj_list) == 0:
+            return (0, 0, 0)
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.get(
-                url=f"{self.url}panel/api/inbounds/getClientTrafficsById/{uuid}",
-                cookies=self.cookies
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    # up/down/total — в байтах
-                    return (data['obj'][0]['up'], data['obj'][0]['down'], data['obj'][0]['total'])
-                logger.warning(f"Не удалось получить трафик клиента {uuid}: {data.get('msg')}")
-                return False
-
-            logger.warning(f"Не удалось получить трафик клиента {uuid}: {response.status_code}")
-            return False
+        obj = obj_list[0]
+        return (obj.get('up', 0), obj.get('down', 0), obj.get('total', 0))
 
     async def get_total_gb(self, uuid: str) -> int:
-        """Текущий лимит totalGB в ГБ (по данным getClientTrafficsById)."""
+        """Текущий лимит totalGB в ГБ"""
         traf = await self.client_remain_trafic(uuid)
-        if not traf:
+        if traf is False:
             return 0
         total_bytes = traf[2] or 0
-        return int(total_bytes // 1073741824)
+        return int(total_bytes // GB_BYTES)
 
-    async def get_client_vless(self, uuid: str):
-        if not self.cookies:
-            await self.auth()
+    async def get_client_vless(self, uuid: str) -> str | None:
+        """Генерирует ссылку VLESS для клиента"""
+        response = await self._make_request("GET", f"panel/api/inbounds/get/{self.indoub_id}")
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.get(
-                url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
-                cookies=self.cookies
-            )
+        if not response or not response.get('success'):
+            return None
 
-            if response.status_code != 200:
-                logger.warning(f"Не удалось подключиться к индаубу: {self.url} - {response.status_code}")
-                return
+        data = response['obj']
+        settings = json.loads(data['settings'])
+        stream_settings = json.loads(data['streamSettings'])
 
-            data = response.json()['obj']
-            settings = self.strin_to_dict(data['settings'])
-            stream_settings = self.strin_to_dict(data['streamSettings'])
-            ip = self.url.split('/')[2].replace('https://', '').replace('http://', '').split(':')[0]
+        # Надежное извлечение IP адреса сервера
+        ip = self.url.split('/')[2].replace('https://', '').replace('http://', '').split(':')[0]
 
-            client_obj = {}
-            for i in settings['clients']:
-                if i['id'] == uuid:
-                    client_obj = i
-                    break
+        client_obj = next((i for i in settings.get('clients', []) if i.get('id') == uuid), None)
 
-            if not client_obj:
-                logger.warning("Клиент не найден")
-                return
+        if not client_obj:
+            logger.warning(f"Клиент {uuid} не найден на сервере {self.name}")
+            return None
 
-            return (
+        # Формирование VLESS ссылки
+        try:
+            rs = stream_settings.get('realitySettings', {})
+            rs_settings = rs.get('settings', {})
+            path = stream_settings.get('xhttpSettings', {}).get('path', '') or stream_settings.get('wsSettings',
+                                                                                                   {}).get('path', '')
+            target_sni = rs.get('target', 'none').split(':')[0]
+            short_id = rs.get('shortIds', [''])[0] if rs.get('shortIds') else ''
+
+            client_name_url = quote(self.name if self.name else client_obj['email'].split('_')[0])
+
+            vless_url = (
                 f"vless://{uuid}@{ip}:{data['port']}?"
-                f"type={stream_settings['network']}&"
+                f"type={stream_settings.get('network', 'tcp')}&"
                 f"security={stream_settings.get('security', 'none')}&"
                 f"encryption={settings.get('encryption', 'none')}&"
-                f"path={stream_settings.get('xhttpSettings', {}).get('path', '') or stream_settings.get('wsSettings', {}).get('path', '')}&"
-                f"pbk={stream_settings.get('realitySettings', {}).get('settings', {}).get('publicKey', 'none')}&"
-                f"fp={stream_settings.get('realitySettings', {}).get('settings', {}).get('fingerprint', 'none')}&"
-                f"sni={stream_settings.get('realitySettings', {}).get('target', 'none').split(':')[0]}&"
-                f"sid={stream_settings.get('realitySettings', {}).get('shortIds', [''])[0]}&"
-                f"spx=%2F&flow={client_obj.get('flow', '')}#{quote(self.name if self.name else client_obj['email'].split('_')[0])}"
-               )
-
-    async def delete_client(self, uuid: str):
-        if not self.cookies:
-            await self.auth()
-
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.post(
-                url=self.url + f"panel/api/inbounds/{self.indoub_id}/delClient/{uuid}",
-                cookies=self.cookies
+                f"path={path}&"
+                f"pbk={rs_settings.get('publicKey', 'none')}&"
+                f"fp={rs_settings.get('fingerprint', 'none')}&"
+                f"sni={target_sni}&"
+                f"sid={short_id}&"
+                f"spx=%2F&flow={client_obj.get('flow', '')}#{client_name_url}"
             )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    logger.info(f"Удален клиент {uuid}")
-                    return True
-                logger.warning(f"Не удалось удалить клиента {uuid}: {data.get('msg')}")
-                return False
+            return vless_url
+        except Exception as e:
+            logger.error(f"Ошибка парсинга VLESS ссылки на {self.name}: {e}")
+            return None
 
-            logger.warning(f"Не удалось удалить клиента {uuid}: {response.status_code}")
-            return False
+    async def delete_client(self, uuid: str) -> bool:
+        response = await self._make_request("POST", f"panel/api/inbounds/{self.indoub_id}/delClient/{uuid}")
 
-    async def reset_client_traffic(self, email: str):
-        """Сбросить трафик клиента по email"""
-        if not self.cookies:
-            await self.auth()
+        if response and response.get('success'):
+            logger.info(f"Удален клиент {uuid} с {self.name}")
+            return True
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.post(
-                url=f"{self.url}panel/api/inbounds/{self.indoub_id}/resetClientTraffic/{email}",
-                cookies=self.cookies
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success'):
-                    logger.info(f"Сброшен трафик клиента {email}")
-                    return True
-                logger.warning(f"Не удалось сбросить трафик {email}: {data.get('msg')}")
-                return False
+        logger.warning(f"Не удалось удалить клиента {uuid} на {self.name}")
+        return False
 
-            logger.warning(f"Не удалось сбросить трафик {email}: {response.status_code}")
-            return False
+    async def reset_client_traffic(self, email: str) -> bool:
+        response = await self._make_request("POST", f"panel/api/inbounds/{self.indoub_id}/resetClientTraffic/{email}")
 
+        if response and response.get('success'):
+            logger.info(f"Сброшен трафик клиента {email} на {self.name}")
+            return True
+
+        logger.warning(f"Не удалось сбросить трафик {email} на {self.name}")
+        return False
 
     async def get_client_by_uuid(self, uuid: str) -> dict | None:
         """Достаёт объект клиента из inbound settings по uuid."""
-        if not self.cookies:
-            await self.auth()
+        response = await self._make_request("GET", f"panel/api/inbounds/get/{self.indoub_id}")
 
-        async with AsyncClient(verify=False, timeout=10) as client:
-            response = await client.get(
-                url=f"{self.url}panel/api/inbounds/get/{self.indoub_id}",
-                cookies=self.cookies
-            )
+        if not response or not response.get("success"):
+            return None
 
-            if response.status_code != 200:
-                logger.warning(f"Не удалось получить inbound {self.indoub_id}: {response.status_code}")
-                return None
+        inbound = response.get("obj") or {}
+        settings_raw = inbound.get("settings")
+        if not settings_raw:
+            return None
 
-            data = response.json()
-            if not data.get("success"):
-                logger.warning(f"Не удалось получить inbound {self.indoub_id}: {data.get('msg')}")
-                return None
-
-            inbound = data.get("obj") or {}
-            settings_raw = inbound.get("settings")
-            if not settings_raw:
-                return None
-
-            settings = self.strin_to_dict(settings_raw)
-            for c in settings.get("clients", []):
-                if c.get("id") == uuid:
-                    return c
-
-        return None
+        settings = json.loads(settings_raw)
+        return next((c for c in settings.get("clients", []) if c.get("id") == uuid), None)

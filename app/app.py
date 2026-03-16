@@ -23,7 +23,7 @@ from app.database.queries import (
     orm_get_user_servers,
 )
 from app.utils.three_x_ui_api import ThreeXUIServer
-from app.payment_router.payment_views import recurent_payment, check_subscription_expiry, notify_expired_users
+from app.payment_router.payment_views import recurent_payment, check_subscription_expiry, notify_expired_users,reset_monthly_traffic
 
 
 @asynccontextmanager
@@ -66,6 +66,17 @@ async def lifespan(app: FastAPI):
         args=[bot]
     )
 
+    traffic_reset_trigger = CronTrigger(
+        day="1", hour="3", minute="0", second="0"
+    )
+    scheduler.add_job(
+        reset_monthly_traffic,
+        trigger=traffic_reset_trigger,
+        id='reset_monthly_traffic',
+        replace_existing=True,
+        args=[bot]
+    )
+
     scheduler.start()
     yield
     await stop_bot()
@@ -88,7 +99,7 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
 
     # 3. Генерируем vless:// ссылки для каждого сервера
     config_lines = []
-
+    trafic = (0, 0, 0)
     servers = await orm_get_servers(session)
     threex_panels = []
     for server in servers:
@@ -107,7 +118,7 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
                 try:
                     vless_url = await panel.get_client_vless(user_server.tun_id)
                     if panel.need_gb == True:
-                        trafic = await panel.client_remain_trafic(user_server.tun_id) or 0
+                        trafic = await panel.client_remain_trafic(user_server.tun_id) or (0, 0, 0)
                 except Exception as e:
                     logger.warning(f"Сервер {user_server.server_id} недоступен: {e}")
 

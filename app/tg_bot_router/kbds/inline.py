@@ -30,7 +30,7 @@ def get_start_btns(
 
 
 def get_main_btns(
-        sizes: tuple = (1, 1, 2, 2, 2),
+        sizes: tuple = (1, 1, 2, 1, 2),
 ):
     keyboard = InlineKeyboardBuilder()
 
@@ -42,9 +42,7 @@ def get_main_btns(
         InlineKeyboardButton(text='📲 Установить VPN', callback_data=MenuCallback(level=5, menu_name='help').pack()))
     keyboard.add(
         InlineKeyboardButton(text='👫 Пригласить', callback_data=MenuCallback(level=1, menu_name='invite').pack()))
-    keyboard.add(
-        InlineKeyboardButton(text='❓ Частые вопросы', callback_data=MenuCallback(level=7, menu_name='faq').pack()))
-    keyboard.add(InlineKeyboardButton(text='☎️ Поддержка', url="https://t.me/skynetaivpn_support"))
+    keyboard.add(InlineKeyboardButton(text='☎️ Поддержка', callback_data=MenuCallback(level=8, menu_name='support').pack()))
     keyboard.add(InlineKeyboardButton(text='🛒 Другие продукты',
                                       callback_data=MenuCallback(level=6, menu_name='other_products').pack()))
     keyboard.add(InlineKeyboardButton(text='📄 Оферта | Политика',
@@ -140,7 +138,7 @@ def get_faq_list_btns(faq_list, sizes: tuple[int] = (1,)):
 
     keyboard.add(InlineKeyboardButton(
         text="⬅️ Назад",
-        callback_data=MenuCallback(level=1, menu_name='main').pack()
+        callback_data=MenuCallback(level=8, menu_name='support').pack()
     ))
 
     return keyboard.adjust(*sizes).as_markup()
