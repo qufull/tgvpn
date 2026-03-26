@@ -13,7 +13,7 @@ class ThreeXUIServer:
     def __init__(self, id, url, indoub_id, login, password, need_gb=False, name='') -> None:
         self.id = id
         # Гарантируем, что URL заканчивается на слеш
-        self.url = url if url.endswith('/') else f"{url}/"
+        self.url = url.rstrip('/')
         self.indoub_id = int(indoub_id)
         self.login = login
         self.password = password
@@ -36,36 +36,46 @@ class ThreeXUIServer:
         Универсальный метод для всех запросов.
         Ловит таймауты, ошибки сети и автоматически авторизуется при необходимости.
         """
+        clean_endpoint = endpoint.lstrip('/')
+
         # Если нет куки и это не запрос логина — сначала авторизуемся
-        if not self.cookies and endpoint != "login":
+        if not self.cookies and clean_endpoint != "login":
             if not await self.auth():
                 return None  # Прерываем запрос, если авторизация не удалась
 
-        url = f"{self.url}{endpoint}"
+        url = f"{self.url}/{clean_endpoint}"
+
+        # Маскируемся под обычный браузер Chrome (спасает от блокировок User-Agent)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
 
         try:
-            # Короткий таймаут (5 сек), чтобы не вешать бота из-за мертвых серверов
-            async with httpx.AsyncClient(verify=False, timeout=5.0) as client:
+            # УВЕЛИЧЕН таймаут до 15.0 секунд
+            async with httpx.AsyncClient(verify=False, timeout=5, headers=headers) as client:
                 if method.upper() == "GET":
                     response = await client.get(url, cookies=self.cookies)
                 else:
                     response = await client.post(url, json=payload, cookies=self.cookies)
 
                 # Обработка успешного запроса логина (сохраняем куки)
-                if endpoint == "login" and response.status_code == 200:
+                if clean_endpoint == "login" and response.status_code == 200:
                     self.cookies = response.cookies
 
                 if response.status_code == 200:
                     return response.json()
                 else:
-                    logger.warning(f"Ошибка {response.status_code} от сервера {self.name} при запросе {endpoint}")
+                    logger.warning(f"Ошибка HTTP {response.status_code} от сервера {self.name} при запросе {url}")
                     return None
 
         except httpx.RequestError as e:
-            logger.error(f"Сетевая ошибка/Таймаут с сервером {self.name} ({self.url}): {e}")
+            # Добавили type(e).__name__, чтобы точно видеть тип ошибки (Timeout, ConnectError и т.д.)
+            logger.error(f"Сетевая ошибка/Таймаут с сервером {self.name} ({url}): {type(e).__name__} {e}")
             return None
         except Exception as e:
-            logger.error(f"Неизвестная ошибка с сервером {self.name}: {e}")
+            logger.error(f"Неизвестная ошибка с сервером {self.name} ({url}): {e}")
             return None
 
     async def auth(self) -> bool:
@@ -144,21 +154,28 @@ class ThreeXUIServer:
         """Возвращает кортеж (up, down, total) в байтах или False"""
         response = await self._make_request("GET", f"panel/api/inbounds/getClientTrafficsById/{uuid}")
 
-        if not response or not response.get('success'):
-            return False
+        up, down, total = 0, 0, 0
 
-        obj_list = response.get('obj')
+        # 1. Пытаемся получить статистику использования (up/down)
+        if response and response.get('success'):
+            obj_list = response.get('obj')
+            if obj_list and len(obj_list) > 0:
+                obj = obj_list[0]
+                up = obj.get('up', 0)
+                down = obj.get('down', 0)
+                total = obj.get('total', 0)
 
-        if obj_list is None:
-            return False
+        if total == 0 and self.need_gb:
+            client_data = await self.get_client_by_uuid(uuid)
+            if client_data:
+                # Берем лимит прямо из конфига клиента
+                total = client_data.get('totalGB', 0)
 
-        # Клиент есть, но ещё ни разу не подключался — статистики нет
-        if len(obj_list) == 0:
-            return (0, 0, 0)
+            # Резервный вариант: если даже в конфиге пусто, отдаем жесткие 30 ГБ
+            if total == 0:
+                total = 30 * GB_BYTES
 
-        obj = obj_list[0]
-        return (obj.get('up', 0), obj.get('down', 0), obj.get('total', 0))
-
+        return (up, down, total)
     async def get_total_gb(self, uuid: str) -> int:
         """Текущий лимит totalGB в ГБ"""
         traf = await self.client_remain_trafic(uuid)

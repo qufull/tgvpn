@@ -26,6 +26,29 @@ from app.tg_bot_router.kbds.inline import (
     other_products_btns
 )
 
+async def proxy_menu(level: int, menu_name: str) -> tuple:
+    caption = (
+        "<b>🛡 Выберите прокси для Telegram:</b>\n\n"
+        "Нажмите на любую из кнопок ниже, чтобы применить настройки прокси "
+        "и обеспечить стабильное соединение прямо в приложении Telegram."
+    )
+
+    # Замените эти ссылки на ваши реальные прокси
+    proxy_1 = "tg://socks?server=skynetai.ru&port=1080&user=tg&pass=nYmR5laSgfngWJVn"
+    proxy_2 = "tg://proxy?server=skynetai.ru&port=443&secret=7pSZCxViSqmZqUDxHBGMd215YW5kZXgucnU"
+    proxy_3 = "https://t.me/proxy?server=n2.skynetai.ru&port=444&secret=7pIfrhJtjEQD8kvHfPECCMp3d3cud2lraXBlZGlhLm9yZw"
+
+    keyboard = get_inlineMix_btns(
+        btns={
+            "🛡 1 Моб. связь": proxy_1,
+            "🛡 2 Моб. связь + комп": proxy_2,
+            "🛡 3 Моб. связь + комп": proxy_3,
+            "⬅️ Назад": MenuCallback(level=4, menu_name='check').pack(), # Возврат в меню подписки
+        },
+        sizes=(1, 1, 1, 1) # Каждая кнопка на новой строке
+    )
+
+    return caption, keyboard
 
 async def start_message(session, level, menu_name, user_id):
     baner = types.FSInputFile("media/img/main_logo_bg.jpg")
@@ -44,7 +67,7 @@ async def main_menu(session: AsyncSession, level, menu_name, user_id: Optional[i
         caption="<b>SKYNET VPN — сервис шифрованных подключений.</b>\n\n"\
                 "Мы не анализируем содержимое трафика и не ведём его содержательные логи. \n\n"\
                 "Устанавливается на:  <b>Windows / macOS / iOS / Android / Linux / Android TV. </b>\n\n"\
-                "Трафик со стороны сервиса не лимитируется. \n"\
+                "Безлимитный трафик (кроме трафика для обхода блокировок) \n"\
                 "Фактическая скорость соединения зависит от вашей сети и устройства.\n\n"\
                 "<b>Оплатите тариф и начинайте пользоваться.</b>\n\n"\
                 "<b>Список доступных стран для подключения</b>: 🇷🇺РФ 🇺🇸США 🇵🇱Польша 🇱🇻 Латвия 🇳🇱Нидерланды 🇩🇪Германия 🏳️Когда глушат интернет"
@@ -74,7 +97,7 @@ async def buy_subscribe(
     tariffs = await orm_get_tariffs(session)
     servers = await orm_get_servers(session)
 
-    caption = "<b>⚡️ Вы покупаете премиум подписку на SKYNET VPN</b>\n\n● Возможность подключить любые устройства\n● До 8 устройств одновременно\n● Без лимитов и ограничений по скорости\n\n<b>Список поддерживаемых устройств:</b>\n\nAndroid (Android 7.0 или новее.) | Windows (Windows 8.1 или новее.) | iOS, iPadOS (iOS 16.0 или новее.) | macOS процессоры M  (macOS 13.0 или новее) | macOS  c процессором Intel (macOS 11.0 или новее.) | Android TV ( Android 7.0 или новее.) | Linux\n\n<b>🌍 Доступные страны:</b>\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать\n 🏳️ - Лимит по обходу белых списков 30 ГБ каждый месяц\n 🎭 - обходят блокировки VLESS\n ⚡️ - быстрая скорость\n"
+    caption = "<b>⚡️ Вы покупаете премиум подписку на SKYNET VPN</b>\n\n● Подключайте любые устройства: Smart TV, мобильное устройство, компьютер, планшет.\n● До 8 устройств одновременно\n● Без ограничений по скорости\n● 30 ГБ/мес – только для обхода блокировок (белые списки). Остальной трафик не лимитируется.\n\n<b>Список поддерживаемых устройств:</b>\n\nAndroid (Android 7.0 или новее.) | Windows (Windows 8.1 или новее.) | iOS, iPadOS (iOS 16.0 или новее.) | macOS процессоры M  (macOS 13.0 или новее) | macOS  c процессором Intel (macOS 11.0 или новее.) | Android TV ( Android 7.0 или новее.) | Linux\n\n<b>🌍 Доступные страны:</b>\n👑 - без рекламы на YouTube\n🎧 - YouTube можно сворачивать\n 🏳️ - Лимит по обходу белых списков 30 ГБ каждый месяц\n 🎭 - обходят блокировки VLESS\n ⚡️ - быстрая скорость\n"
 
     for server in servers:
         if server.id == servers[-1].id:
@@ -177,6 +200,7 @@ async def check_subscribe(
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+                "🛡 Telegram Прокси": MenuCallback(level=9, menu_name='proxies').pack(),
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
                 "❌ Отменить подписку": MenuCallback(level=4, menu_name='cancel').pack(),
                 "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
@@ -227,6 +251,7 @@ async def check_subscribe(
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+                "🛡 Telegram Прокси": MenuCallback(level=9, menu_name='proxies').pack(),
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
                 "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
                 "⬅️ Назад": MenuCallback(level=1, menu_name='main').pack(),
@@ -404,5 +429,7 @@ async def get_menu_content(
         return await faq_menu(session, level, menu_name)
     elif level == 8:
         return await support_menu(level, menu_name)
+    elif level == 9:
+        return await proxy_menu(level, menu_name)
     else:
         return await start_message(session, level, menu_name, user_id)

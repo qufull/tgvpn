@@ -187,15 +187,14 @@ async def update_clients(
 @api_router.get("/subscribtion")
 async def generate_subscription_config(user_token: str, session: AsyncSession = Depends(get_async_session)):
     try:
-        from uuid import UUID
         user_uuid = UUID(user_token)
     except ValueError:
-        # Если токен — мусор, просто выдаем 404
         raise HTTPException(status_code=404, detail="Invalid token format")
 
     user = await orm_get_user(session, user_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
     today = datetime.now()
 
     # Проверка подписки
@@ -220,61 +219,64 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
 
     servers = await orm_get_servers(session)
 
-    # Создаем мапу панелей для быстрого доступа
-    panels_map = {
-        s.id: ThreeXUIServer(s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb, s.name)
-        for s in servers
-    }
+    # 1. Инициализация и авторизация панелей (оставляем без изменений)
+    async def init_and_auth_panel(s):
+        p = ThreeXUIServer(s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb, s.name)
+        try:
+            auth_success = await p.auth()
+            if not auth_success:
+                logger.error(f"Не удалось авторизоваться на сервере {s.name}")
+                return s.id, None
+            return s.id, p
+        except Exception as e:
+            logger.error(f"Ошибка при авторизации на сервере {s.name}: {e}")
+            return s.id, None
 
-    # Подготавливаем список задач для параллельного выполнения
+    panel_auth_results = await asyncio.gather(*(init_and_auth_panel(s) for s in servers))
+    panels_map = {s_id: p for s_id, p in panel_auth_results if p is not None}
+
+    # 2. НОВАЯ ЛОГИКА: запрашиваем VLESS и Трафик ПОСЛЕДОВАТЕЛЬНО для каждой панели
+    async def fetch_panel_data(panel, us_server):
+        vless = await panel.get_client_vless(us_server.tun_id)
+        traffic = (0, 0, 0)
+
+        # Если VLESS успешно получен и этому серверу нужен подсчет ГБ — запрашиваем трафик
+        if vless and panel.need_gb:
+            res = await panel.client_remain_trafic(us_server.tun_id)
+            if isinstance(res, tuple) and len(res) >= 3:
+                traffic = res
+
+        return vless, traffic
+
+    # 3. Собираем задачи по всем серверам
     tasks = []
-    task_metadata = []
-
-    # ❗️ Итерируемся строго по servers (отсортированы по id/sort_order в БД), чтобы сохранить порядок
     for server in servers:
-        # Ищем user_server для этого сервера
         user_server = next((us for us in user_servers if us.server_id == server.id), None)
-
         if not user_server:
             continue
 
         panel = panels_map.get(server.id)
         if panel:
-            tasks.append(panel.get_client_vless(user_server.tun_id))
-            task_metadata.append({"type": "vless", "server_id": server.id, "server_name": server.name})
+            # Кладем в задачи нашу новую безопасную функцию
+            tasks.append(fetch_panel_data(panel, user_server))
 
-            # Задача 2: Получение трафика (если нужно)
-            if panel.need_gb:
-                tasks.append(panel.client_remain_trafic(user_server.tun_id))
-                task_metadata.append({"type": "traffic", "server_id": server.id, "server_name": server.name})
-
+    # 4. Выполняем запросы ко всем панелям ПАРАЛЛЕЛЬНО
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     config_lines = []
-    total_traffic = [0, 0, 0]  # up, down, total
+    total_traffic = [0, 0, 0]
 
-    for i, res in enumerate(results):
-        meta = task_metadata[i]
-
-        if isinstance(res, Exception) or res is False or res is None:
-            error_detail = str(res) if isinstance(res, Exception) else "Пустой ответ (None/False)"
-
-            logger.warning(
-                f"🛑 Ошибка API: Сервер «{meta['server_name']}», тип: {meta['type']}. "
-                f"Причина: {error_detail}"
-            )
+    for res in results:
+        # Если функция вернула ошибку, просто пропускаем
+        if isinstance(res, Exception) or not res:
             continue
 
-        if meta["type"] == "vless" and res:  # Убеждаемся, что res не пустой
-            config_lines.append(res)
-        elif meta["type"] == "traffic":
-            if isinstance(res, (list, tuple)) and len(res) >= 3:
-                total_traffic[0] += (res[0] or 0)
-                total_traffic[1] += (res[1] or 0)
-                total_traffic[2] += (res[2] or 0)
-            else:
-                # Если данных нет, просто логируем это тихо, не ломая конфиг
-                logger.debug(f"С сервера {meta['server_name']} не получены данные о трафике")
+        vless, traffic = res
+        if vless:
+            config_lines.append(vless)
+            total_traffic[0] += traffic[0]
+            total_traffic[1] += traffic[1]
+            total_traffic[2] += traffic[2]
 
     if not config_lines:
         raise HTTPException(status_code=404, detail="No configs found")
@@ -283,15 +285,18 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
         content="\n".join(config_lines),
         media_type="text/plain; charset=utf-8"
     )
+
     response.headers['profile-title'] = "base64:" + base64.b64encode('⚡️ SkynetVPN'.encode('utf-8')).decode('latin-1')
     response.headers["announce"] = "base64:" + base64.b64encode(
-        ('Отображаемое количество трафика относиться только к "Когда глушат интернет"\n\n'
+        ('Лимит на "Когда глушат интернет" 30 ГБ/мес. Остальной трафик не лимитирован."\n\n'
          "👑 - без рекламы на YouTube\n"
          "🎧 - YouTube можно сворачивать \n"
          "⚡️ - быстрая скорость\n\n"
          "↗️ Нажмите сюда, чтобы перейти в нашего бота\n").encode('utf-8')
     ).decode('latin-1')
     response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"
+
+    # 5. Передаем суммарный трафик в заголовок
     response.headers["subscription-userinfo"] = (
         f"expire={int(user.sub_end.timestamp())}; "
         f"upload={total_traffic[0]}; download={total_traffic[1]}; total={total_traffic[2]}"

@@ -5,11 +5,6 @@ from starlette.responses import FileResponse
 site_router = APIRouter(prefix="/site")
 
 
-@site_router.get('/')
-async def main_page():
-    return FileResponse('app/site_router/templates/index.html')
-
-
 @site_router.get('/privacy_policy')
 async def private_policy_page():
     return FileResponse('app/site_router/templates/privacy-policy.html')

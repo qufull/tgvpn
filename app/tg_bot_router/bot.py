@@ -52,7 +52,9 @@ async def redirect_to_v2ray(telegram_id: int, session: AsyncSession = Depends(ge
 async def start_bot():
     await bot.set_my_commands(
         commands=[
-            types.BotCommand(command='menu', description="Главное меню")
+            types.BotCommand(command='menu', description="Главное меню"),
+            types.BotCommand(command='ref', description="Пригласить друга")
+
         ], 
         scope=types.BotCommandScopeAllPrivateChats()
     )

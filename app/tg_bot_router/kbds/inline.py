@@ -114,15 +114,21 @@ def succes_pay_btns_for_gb(user: User, sizes: tuple = (1,)):
 
 def other_products_btns(level: int, sizes: tuple[int] = (1,)):
     keyboard = InlineKeyboardBuilder()
+
     keyboard.add(InlineKeyboardButton(
         text=f"📫 Наш телеграм канал",
-        url=""
+        url="https://t.me/Sky_Net_AI"
+    ))
+    keyboard.add(InlineKeyboardButton(
+        text=f"🤖 Медиа бот",  # Добавил эмодзи для красоты, можете убрать :)
+        url="https://t.me/Skynet_download_bot"
     ))
     keyboard.add(InlineKeyboardButton(
         text=f"⬅️ Назад",
         callback_data=MenuCallback(level=1, menu_name='main').pack()
     ))
 
+    # Эта строчка обязательна, она собирает кнопки в интерфейс
     return keyboard.adjust(*sizes).as_markup()
 
 

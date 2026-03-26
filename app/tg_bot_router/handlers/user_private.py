@@ -66,6 +66,28 @@ async def user_menu_by_command(message: types.Message, session: AsyncSession):
         logger.exception("MENU FAILED")
         await message.answer("Меню упало ❌. Причина в логах.")
 
+@user_private_router.message(Command('ref'))
+async def user_ref_by_command(message: types.Message, session: AsyncSession):
+    try:
+        # Получаем контент для меню invite с картинкой
+        content, reply_markup = await get_menu_content(
+            session,
+            level=1,
+            menu_name='invite',
+            user_id=message.from_user.id,
+            include_image=True
+        )
+
+        # Отправляем ФОТО-сообщение пользователю
+        await message.answer_photo(
+            photo=content.media,       # Передаем сам файл картинки
+            caption=content.caption,   # Передаем текст в качестве подписи (caption)
+            reply_markup=reply_markup,
+        )
+    except Exception:
+        logger.exception("REF COMMAND FAILED")
+        await message.answer("Ошибка при открытии реферального меню ❌. Причина в логах.")
+
 
 @user_private_router.callback_query(MenuCallback.filter())
 async def user_menu(callback_query: types.CallbackQuery, callback_data: MenuCallback, session: AsyncSession):

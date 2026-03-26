@@ -314,6 +314,12 @@ async def choose_server(
                 uuid=us.tun_id, email=email, limit_ip=tariff.ips, name=user.name,
                 expiry_time=end_timestamp, tg_id=user.telegram_id, total_gb=total_gb,
             )
+            if panel.need_gb:
+                try:
+                    await panel.reset_client_traffic(email)
+                    logger.info(f"Трафик для {email} успешно сброшен при покупке/продлении.")
+                except Exception as e:
+                    logger.error(f"Не удалось сбросить трафик для {email} на панели {panel.name}: {e}")
 
     api_tasks = [process_panel(item) for item in panels_to_setup]
     await asyncio.gather(*api_tasks, return_exceptions=True)
