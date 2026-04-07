@@ -89,6 +89,62 @@ async def background_newsletter(bot: Bot, telegram_ids: list[int], text: str, pi
     logger.info(f"🏁 Рассылка завершена. Успешно доставлено: {sent}, Ошибок (блокировок): {failed}")
 
 
+async def background_rename_clients_on_server(server_id: int, new_name: str, session_maker):
+    """Фоновое обновление имен (email) всех клиентов в панели при смене названия сервера."""
+    async with session_maker() as session:
+        server = await orm_get_server(session, server_id)
+        if not server:
+            return
+
+        panel = ThreeXUIServer(
+            server.id, server.url, server.indoub_id, server.login, server.password, server.need_gb, new_name
+        )
+
+        if not await panel.auth():
+            logger.error(f"Не удалось авторизоваться для переименования на сервере {new_name}")
+            return
+
+        users_servers = await orm_get_user_servers_by_si(session, server.id)
+        all_users = await orm_get_users(session)
+        user_dict = {u.id: u for u in all_users}
+
+        success_count = 0
+
+        for us in users_servers:
+            user = user_dict.get(us.user_id)
+            if not user or not user.sub_end:
+                continue
+
+            # Формируем новое имя для 3x-ui
+            new_email = f"{new_name}_{us.id}"
+            expiry_ms = int(user.sub_end.timestamp() * 1000)
+
+            total_gb = 0
+            # Если серверу нужен учет ГБ, аккуратно забираем текущее значение, чтобы не сбросить его
+            if panel.need_gb:
+                try:
+                    total_gb = await panel.get_total_gb(us.tun_id)
+                except Exception:
+                    total_gb = 30
+
+            res = await panel.edit_client(
+                uuid=us.tun_id,
+                name=user.name,
+                email=new_email,
+                limit_ip=user.ips or 1,
+                expiry_time=expiry_ms,
+                tg_id=str(user.telegram_id),
+                total_gb=total_gb
+            )
+
+            if res:
+                success_count += 1
+
+            # Пауза для защиты от блокировки API панели
+            await asyncio.sleep(0.1)
+
+        logger.info(f"✅ Переименование на сервере {new_name} завершено. Успешно: {success_count}/{len(users_servers)}")
+
 async def background_process_clients(api_tasks: list, action: str):
     """
     Фоновая обработка задач с ПРЕДОХРАНИТЕЛЕМ от мертвых серверов.
@@ -444,7 +500,6 @@ async def process_server_name(message: types.Message, state: FSMContext, session
 
     await state.update_data(name=new_name)
 
-    # Если мы в режиме "только имя" - обновляем и прерываем FSM
     if FSMAddServer.server_to_change and FSMAddServer.edit_mode == 'name':
         server = FSMAddServer.server_to_change
         update_data = {
@@ -455,17 +510,29 @@ async def process_server_name(message: types.Message, state: FSMContext, session
             'password': server.password,
             'need_gb': server.need_gb
         }
+
         await orm_update_server(session, update_data, server.id)
+
+        asyncio.create_task(
+            background_rename_clients_on_server(
+                server_id=server.id,
+                new_name=new_name,
+                session_maker=async_session_maker
+            )
+        )
 
         # Очищаем переменные
         FSMAddServer.server_to_change = None
         FSMAddServer.edit_mode = None
 
-        await message.answer("✅ Название сервера успешно изменено", reply_markup=admin_menu_kbrd())
+        await message.answer(
+            f"✅ Название сервера изменено на <b>{new_name}</b>.\n",
+            reply_markup=admin_menu_kbrd(),
+            parse_mode="HTML"
+        )
         await state.clear()
         return
 
-    # Если мы идем дальше (полное изменение или новый сервер)
     await state.set_state(FSMAddServer.url)
     await message.answer("Введите url на 3x-ui панель сервера:")
 

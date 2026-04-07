@@ -5,5 +5,6 @@ class UpdateClientGS(BaseModel):
     user_id: int
     devices: int
     sub_time: str
+    email: str
 
 

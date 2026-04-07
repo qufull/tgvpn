@@ -9,7 +9,8 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from aiogram import types
 
-from app.database.queries import orm_get_faq, orm_get_faq_by_id, orm_change_user_tariff, orm_get_servers, orm_get_tariff, orm_get_tariffs, orm_get_user_by_tgid, orm_get_user_servers
+from app.database.queries import orm_get_faq, orm_get_faq_by_id, orm_change_user_tariff, orm_get_servers, \
+    orm_get_tariff, orm_get_tariffs, orm_get_user_by_tgid, orm_get_user_servers, orm_get_referral_count
 from app.utils.days_to_month import days_to_str
 from app.tg_bot_router.kbds.inline import (
     MenuCallback,
@@ -69,10 +70,10 @@ async def main_menu(session: AsyncSession, level, menu_name, user_id: Optional[i
                 "Устанавливается на:  <b>Windows / macOS / iOS / Android / Linux / Android TV. </b>\n\n"\
                 "Безлимитный трафик (кроме трафика для обхода блокировок) \n"\
                 "Фактическая скорость соединения зависит от вашей сети и устройства.\n\n"\
-                "<b>Оплатите тариф и начинайте пользоваться.</b>\n\n"\
-                "<b>Список доступных стран для подключения</b>: 🇷🇺РФ 🇺🇸США 🇵🇱Польша 🇱🇻 Латвия 🇳🇱Нидерланды 🇩🇪Германия 🏳️Когда глушат интернет"
+                "<b>Оплатите тариф и начинайте пользоваться.</b>\n\n"
     elif menu_name == 'invite':
-        caption=f"<b>Приглашайте друзей и получайте бонусы!</b> \n\nЗа каждую покупку приглашенных пользователей Вы получите к вашей подписке:\n\nЗа 1 мес. – 7 дней\nЗа 6 мес. – 15 дней\nЗа 12 мес. – 30 дней\n\nВаша реферальная ссылка:\nhttps://t.me/skynetaivpn_bot?start={user_id}"
+        referrals_count = await orm_get_referral_count(session, user_id)
+        caption=f"<b>Приглашайте друзей и получайте бонусы!</b> \n\nЗа каждую покупку приглашенных пользователей Вы получите к вашей подписке:\n\nЗа 1 мес. – 7 дней\nЗа 6 мес. – 15 дней\nЗа 12 мес. – 30 дней\n\nПриглашено пользователей: <b>{referrals_count}</b>\n\nВаша реферальная ссылка:\nhttps://t.me/skynetaivpn_bot?start={user_id}"
     elif menu_name == 'policy':
         caption=f"О нас: \nМы предоставляем техническую услугу по организации шифрованного соединения (VPN). Не являемся СМИ, не размещаем и не контролируем контент. Сервис не предназначен для обхода ограничений и доступа к запрещённой информации. \n\nПолный текст —  <a href=\"{os.getenv('URL')}/site/privacy_policy\">Политика конфидециальности</a>.\n\nХарактеристики, сроки и стоимость — в интерфейсе бота и в <a href=\"{os.getenv('URL')}/site/terms_of_service\">публичной оферте</a>."
     elif menu_name == 'faq':
@@ -311,9 +312,9 @@ async def pay_menu(
 async def help_menu(level: int, menu_name: str) -> tuple:
     text = {
         'android': '<b>📖 Для подключения VPN на Android:</b>\n\n1. Установите приложение «v2RayTun» из Google Play по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://play.google.com/store/apps/details?id=com.v2raytun.android&pcampaignid=web_share',
-        'iphone': '<b>📖 Для подключения VPN на Iphone:</b>\n\n1. Установите приложение «v2RayTun» из App Store по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://apps.apple.com/ru/app/v2raytun/id6476628951',
+        'iphone': '<b>📖 Для подключения VPN на Iphone:</b>\n\n1. Установите приложение «v2RayTun» из App Store по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973?l=en-GB',
         'windows': '<b>Инструкция для Windows:</b>\n\n1. Скопировать ключ, который вы получили\n\n2. Запустить приложение v2raytun от имени администратора (1 СКРИН )\n\n3. Вверху справа нажать "+" и выбрать первое предложенное "Импортировать из буфера обмена" или на английском: "Import from clickboard"  (2 СКРИН)\n\n4. Зайти в Настройки – Настройки трафика – Режим – Туннель (3 СКРИН)\n\n5. Вернуться в главное меню, проверить появился ли ключ и запустить ВПН (4 СКРИН)\n\n6. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://drive.google.com/file/d/1Bbmxgz30fRv4jcn4rJj4M6Q0ZkZnu7Ao/view?usp=drive_link',
-        'macos': '<b>📖 Для подключения VPN на MacOS:</b>\n\n1. Установите приложение «v2RayTun» из App Store по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://apps.apple.com/ru/app/v2raytun/id6476628951',
+        'macos': '<b>📖 Для подключения VPN на MacOS:</b>\n\n1. Установите приложение «v2RayTun» из App Store по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973?l=en-GB',
         'linux': '<b>📖 Для подключения VPN на Linux:</b>\n\n1. Скачайте приложение Hiddify по кнопке ниже и установите его на ваш компьютер.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-Linux-x64.AppImage',
         'androidtv': '<b>📖 Для подключения VPN на Android:</b>\n\n1. Установите приложение «v2RayTun» из Google Play по кнопке ниже.\n\n2. Нажмите кнопку «🔗 Добавить профиль», чтобы добавить подключение в приложение.\n\n3. Всё готово! Теперь вы под защитой и можете без преград пользоваться интернетом!|||https://play.google.com/store/apps/details?id=com.v2raytun.android&pcampaignid=web_share',
     }

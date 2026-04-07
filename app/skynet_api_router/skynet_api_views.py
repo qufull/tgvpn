@@ -39,45 +39,40 @@ async def verify_api_key(x_api_key: str = Header(None)):
 
 @api_router.get('/clients', dependencies=[Depends(verify_api_key)])
 async def get_clients(session: AsyncSession = Depends(get_async_session)):
-    # 1. Запрашиваем данные один раз.
-    # Используем orm_get_users, так как ниже идет фильтрация по подписке
     users = await orm_get_users(session)
     tariffs = await orm_get_tariffs(session)
-
-    # 2. Оптимизация: превращаем список тарифов в словарь {id: tariff_obj}
-    # Теперь поиск тарифа будет мгновенным O(1), а не циклом O(n)
     tariff_map = {t.id: t for t in tariffs}
 
-    # 3. Сортировка (Python sorted достаточно быстр для этого)
-    users_sorted = sorted(
-        users,
-        key=lambda o: o.created or datetime.min
-    )
+    # Сортировка
+    users_sorted = sorted(users, key=lambda o: o.created or datetime.min)
+
+    # Получаем базовый URL из окружения для формирования ключа
+    base_url = os.getenv('URL', 'https://bot-skynetai.ru')
 
     result = []
     for user in users_sorted:
-        # Проверяем наличие подписки или тарифа
         if user.tariff_id > 0 or user.sub_end:
-            # Получаем тариф из словаря
             tariff = tariff_map.get(user.tariff_id)
-
-            # Форматируем дату окончания
             sub_end_str = user.sub_end.strftime('%d.%m.%Y') if user.sub_end else "Нет даты"
 
-            # Определяем статус/длительность
+            # ФОРМИРУЕМ КЛЮЧ
+            # Используем ту же логику, что и в check_subscribe
+            subscription_key = f"{base_url}/api/subscribtion?user_token={user.id}"
+
             if tariff:
                 duration = days_to_str(tariff.days)
             else:
                 duration = "Тариф удален" if user.tariff_id else "Подписка отменена"
 
-            # Формируем строку данных
+            # Добавляем ключ в массив (теперь будет 7 колонок)
             result.append([
                 user.telegram_id,
                 user.name or "Без имени",
                 user.email or "Нет почты",
                 user.ips,
                 sub_end_str,
-                duration
+                duration,
+                subscription_key  # <--- НОВЫЙ СТОЛБЕЦ (7-й)
             ])
 
     return result
@@ -156,7 +151,11 @@ async def update_clients(
     await orm_update_user(
         session,
         user_id=user.id,
-        data={'ips': data.devices, 'sub_end': new_date}
+        data={
+            'ips': data.devices,
+            'sub_end': new_date,
+            'email': data.email
+        }
     )
 
     # 6. Уведомление админов в фоновом режиме (чтобы не задерживать ответ API)
@@ -184,6 +183,27 @@ async def update_clients(
     )
 
     return {"status": "success", "message": "User updated across all active servers"}
+
+
+PANELS_CACHE = {}
+
+
+async def get_cached_panel(server) -> ThreeXUIServer | None:
+    """Возвращает панель из кэша. Авторизация и восстановление происходят 'под капотом'."""
+    if server.id not in PANELS_CACHE:
+        PANELS_CACHE[server.id] = ThreeXUIServer(
+            server.id, server.url, server.indoub_id,
+            server.login, server.password, server.need_gb, server.name
+        )
+
+    panel = PANELS_CACHE[server.id]
+
+    if panel.is_offline:
+        return None
+
+    return panel
+
+
 @api_router.get("/subscribtion")
 async def generate_subscription_config(user_token: str, session: AsyncSession = Depends(get_async_session)):
     try:
@@ -219,28 +239,30 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
 
     servers = await orm_get_servers(session)
 
-    # 1. Инициализация и авторизация панелей (оставляем без изменений)
-    async def init_and_auth_panel(s):
-        p = ThreeXUIServer(s.id, s.url, s.indoub_id, s.login, s.password, s.need_gb, s.name)
-        try:
-            auth_success = await p.auth()
-            if not auth_success:
-                logger.error(f"Не удалось авторизоваться на сервере {s.name}")
-                return s.id, None
-            return s.id, p
-        except Exception as e:
-            logger.error(f"Ошибка при авторизации на сервере {s.name}: {e}")
-            return s.id, None
-
-    panel_auth_results = await asyncio.gather(*(init_and_auth_panel(s) for s in servers))
-    panels_map = {s_id: p for s_id, p in panel_auth_results if p is not None}
-
-    # 2. НОВАЯ ЛОГИКА: запрашиваем VLESS и Трафик ПОСЛЕДОВАТЕЛЬНО для каждой панели
-    async def fetch_panel_data(panel, us_server):
+    # 1. Внутренняя функция для работы с панелью
+    async def fetch_panel_data(panel: ThreeXUIServer, us_server, current_user):
         vless = await panel.get_client_vless(us_server.tun_id)
-        traffic = (0, 0, 0)
 
-        # Если VLESS успешно получен и этому серверу нужен подсчет ГБ — запрашиваем трафик
+        # === АВТО-ВОССТАНОВЛЕНИЕ КЛИЕНТА ===
+        if not vless:
+            logger.info(f"Клиент {us_server.tun_id} не найден на {panel.name}, пробуем создать...")
+            expiry_ms = int(current_user.sub_end.timestamp() * 1000) if current_user.sub_end else 0
+            email = f"{panel.name}_{us_server.id}"
+            name = current_user.name or f"User_{current_user.id}"
+
+            is_added = await panel.add_client(
+                uuid=us_server.tun_id, email=email, limit_ip=current_user.ips or 1,
+                expiry_time=expiry_ms, tg_id=str(current_user.telegram_id),
+                name=name, total_gb=30 if panel.need_gb else 0, flow="xtls-rprx-vision"
+            )
+
+            if is_added:
+                logger.info(f"✅ Успешно воссоздали клиента {us_server.tun_id} на {panel.name}")
+                vless = await panel.get_client_vless(us_server.tun_id)
+            else:
+                logger.error(f"❌ Не удалось воссоздать клиента {us_server.tun_id} на {panel.name}")
+
+        traffic = (0, 0, 0)
         if vless and panel.need_gb:
             res = await panel.client_remain_trafic(us_server.tun_id)
             if isinstance(res, tuple) and len(res) >= 3:
@@ -248,17 +270,34 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
 
         return vless, traffic
 
+    # 2. НОВАЯ ЛОГИКА: Обработка ОДНОГО сервера с жестким лимитом времени (5 секунд)
+    async def get_server_config_with_timeout(server, us_server, current_user):
+        try:
+            async def _process():
+                # Получаем панель (с авторизацией) и запрашиваем данные
+                panel = await get_cached_panel(server)
+                if not panel:
+                    return None
+                return await fetch_panel_data(panel, us_server, current_user)
+
+            # ⏱ Даем ровно 5.0 секунд на всё про всё. Не успел - пропускаем сервер.
+            return await asyncio.wait_for(_process(), timeout=5.0)
+
+        except asyncio.TimeoutError:
+            logger.warning(f"⏱ Таймаут API: Сервер {server.name} отвечал слишком долго и был пропущен.")
+            return None
+        except Exception as e:
+            logger.error(f"⚠️ Ошибка обработки сервера {server.name}: {e}")
+            return None
+
     # 3. Собираем задачи по всем серверам
     tasks = []
     for server in servers:
         user_server = next((us for us in user_servers if us.server_id == server.id), None)
         if not user_server:
             continue
-
-        panel = panels_map.get(server.id)
-        if panel:
-            # Кладем в задачи нашу новую безопасную функцию
-            tasks.append(fetch_panel_data(panel, user_server))
+        # Передаем каждый сервер в обертку с таймаутом
+        tasks.append(get_server_config_with_timeout(server, user_server, user))
 
     # 4. Выполняем запросы ко всем панелям ПАРАЛЛЕЛЬНО
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -267,7 +306,7 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
     total_traffic = [0, 0, 0]
 
     for res in results:
-        # Если функция вернула ошибку, просто пропускаем
+        # Если пришел None (сервер пропущен по таймауту или ошибке) - идем дальше
         if isinstance(res, Exception) or not res:
             continue
 
@@ -296,7 +335,6 @@ async def generate_subscription_config(user_token: str, session: AsyncSession = 
     ).decode('latin-1')
     response.headers["announce-url"] = "https://t.me/skynetaivpn_bot"
 
-    # 5. Передаем суммарный трафик в заголовок
     response.headers["subscription-userinfo"] = (
         f"expire={int(user.sub_end.timestamp())}; "
         f"upload={total_traffic[0]}; download={total_traffic[1]}; total={total_traffic[2]}"
