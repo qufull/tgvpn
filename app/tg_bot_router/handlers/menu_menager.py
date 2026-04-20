@@ -1,3 +1,4 @@
+import hashlib
 from html import escape
 from typing import Optional
 from datetime import datetime
@@ -140,10 +141,10 @@ async def buy_subscribe(
 
 
 async def check_subscribe(
-    session: AsyncSession,
-    level: int,
-    menu_name: str,
-    user_id: int
+        session: AsyncSession,
+        level: int,
+        menu_name: str,
+        user_id: int
 ) -> tuple:
     user = await orm_get_user_by_tgid(session, user_id)
     if not user:
@@ -165,12 +166,27 @@ async def check_subscribe(
 
     now = datetime.now()
     has_end = bool(user.sub_end)
-    is_expired = bool(has_end and user.sub_end <= now)         # закончилась/истекла
-    has_tariff = bool(user.tariff_id and user.tariff_id > 0)   # есть тариф (не отменён)
-    has_servers = bool(user_servers)                           # есть привязанные сервера
+    is_expired = bool(has_end and user.sub_end <= now)  # закончилась/истекла
+    has_tariff = bool(user.tariff_id and user.tariff_id > 0)  # есть тариф (не отменён)
+    has_servers = bool(user_servers)  # есть привязанные сервера
 
     # тариф может быть удалён из БД — страхуемся
     tariff = await orm_get_tariff(session, user.tariff_id) if has_tariff else None
+
+    # --- ГЕНЕРАЦИЯ DEEP-LINK ДЛЯ ВСЕХ АКТИВНЫХ ПОДПИСОК ---
+    # Генерируем ссылку один раз, если подписка действует прямо сейчас
+    deep_link = None
+    if has_end and user.sub_end > now:
+        days_left = max(1, (user.sub_end - now).days)
+        shared_secret = os.getenv("SHARED_BOT_SECRET",
+                                  "rAdi8YYvr54ghTjv97TTZxQ1BSwpELkjfgj9Ft07TDC0BJIY4l73L8n0oanRIHzMX7p5aP4NHVlzkQOoabOmduek3c2NMQT10zpAPgINSAI9zf5UaNHrHSZ5Iuxqgqhr")
+
+        raw_string = f"{user.telegram_id}:{days_left}:{shared_secret}"
+        signature = hashlib.sha256(raw_string.encode()).hexdigest()[:16]
+
+        media_bot_username = "Skynet_download_bot"
+        deep_link = f"https://t.me/{media_bot_username}?start=vpn_{user.telegram_id}_{days_left}_{signature}"
+    # --------------------------------------------------------
 
     # 1) Подписка активна: есть тариф и дата в будущем
     if has_tariff and has_end and user.sub_end > now:
@@ -201,6 +217,7 @@ async def check_subscribe(
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+                "🎥 Premium в Медиа-боте": deep_link,  # Ссылка берется из переменной
                 "🛡 Telegram Прокси": MenuCallback(level=9, menu_name='proxies').pack(),
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
                 "❌ Отменить подписку": MenuCallback(level=4, menu_name='cancel').pack(),
@@ -237,7 +254,6 @@ async def check_subscribe(
         )
         return caption, keyboard
 
-
     # 3) Подписка отменена (tariff_id <= 0), но ещё есть sub_end и сервера (действует до даты)
     if (not has_tariff) and has_end and (user.sub_end > now) and has_servers:
         url = f"{os.getenv('URL')}/api/subscribtion?user_token={user.id}"
@@ -252,6 +268,7 @@ async def check_subscribe(
         keyboard = get_inlineMix_btns(
             btns={
                 "↗️ Подключиться v2rayTun": f"{os.getenv('URL')}/bot/v2ray?telegram_id={user.telegram_id}",
+                "🎥 Premium в Медиа-боте": deep_link,  # <--- ТЕПЕРЬ КНОПКА ЕСТЬ И ЗДЕСЬ
                 "🛡 Telegram Прокси": MenuCallback(level=9, menu_name='proxies').pack(),
                 "🛍 Продлить подписку": MenuCallback(level=2, menu_name='subscribes').pack(),
                 "🔄 Обновить ключ": MenuCallback(level=4, menu_name='check').pack(),
@@ -271,8 +288,6 @@ async def check_subscribe(
         sizes=(1,)
     )
     return caption, keyboard
-
-
 
 
 async def pay_menu(
@@ -298,10 +313,10 @@ async def pay_menu(
             "Тариф действует <b>24 часа</b>.\n"
             "После окончания пробного тарифа, автоматически\n"
             "подключается <b>месячный тариф за 299 ₽.</b>\n\n"
-            'Подписку можно будет отменить в любое время в разделе "Проверить подписку"\n\n'
+            '<b>Подписку можно будет отменить в любое время в разделе "Моя подписка"</b>\n\n'
         )
     else:
-        caption += "Все подписки продлеваются автоматически. Отмена подписки возможна в любой момент.\n\n"
+        caption += '<b>Все подписки продлеваются автоматически. Отмена подписки возможна в любой момент в разделе "Моя подписка"!</b>\n\n'
 
     caption += "После оплаты ключ доступа будет отправлен в течение минуты."
     keyboard = get_pay_btns(tariff, user_id)

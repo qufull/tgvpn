@@ -4,6 +4,7 @@ import time
 from urllib.parse import quote
 from datetime import datetime
 import httpx
+from app import http_client
 
 from app.setup_logger import logger
 
@@ -71,47 +72,44 @@ class ThreeXUIServer:
                 return None
 
         url = f"{self.url}/{clean_endpoint}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
-        }
+
+        if http_client.client is None:
+            logger.error("HTTP клиент не инициализирован!")
+            return None
 
         for attempt in range(1, retries + 1):
             try:
-                async with httpx.AsyncClient(verify=False, timeout=12.0, headers=headers) as client:
-                    if method.upper() == "GET":
-                        response = await client.get(url, cookies=self.cookies)
-                    else:
-                        response = await client.post(url, json=payload, cookies=self.cookies)
+                # 🚀 ИСПОЛЬЗУЕМ ГЛОБАЛЬНЫЙ КЛИЕНТ БЕЗ КОНТЕКСТНОГО МЕНЕДЖЕРА (БЕЗ async with)
+                if method.upper() == "GET":
+                    response = await http_client.client.get(url, cookies=self.cookies)
+                else:
+                    response = await http_client.client.post(url, json=payload, cookies=self.cookies)
 
-                    if clean_endpoint == "login" and response.status_code == 200:
-                        self.cookies = response.cookies
-                        self.clear_offline()
-                        return response.json()
+                # ... дальше идет ваша стандартная логика обработки ответа (response.status_code == 200 и т.д.) ...
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        if not data.get('success') and 'login' in str(data.get('msg', '')).lower():
-                            self.cookies = None
-                            if await self.auth(): continue
-                            return None
-                        self.clear_offline()
-                        return data
+                if clean_endpoint == "login" and response.status_code == 200:
+                    self.cookies = response.cookies
+                    self.clear_offline()
+                    return response.json()
 
-                    # 🔴 ГЛАВНОЕ ИСПРАВЛЕНИЕ ЗДЕСЬ:
-                    # Панель вернула 404 или 401? Сбрасываем старые куки и логинимся заново!
-                    else:
-                        if attempt < retries:
-                            logger.warning(
-                                f"Ошибка {response.status_code} от {self.name}. Возможно, сессия протухла. Сбрасываем и перелогиниваемся.")
-                            self.cookies = None  # Выкидываем протухшую сессию
-                            if await self.auth():
-                                continue  # Пробуем заново уже с новыми куками!
-
-                        # Если не помогло даже со второго раза
-                        logger.warning(f"Ошибка HTTP {response.status_code} от сервера {self.name} при запросе {url}")
+                if response.status_code == 200:
+                    data = response.json()
+                    if not data.get('success') and 'login' in str(data.get('msg', '')).lower():
+                        self.cookies = None
+                        if await self.auth(): continue
                         return None
+                    self.clear_offline()
+                    return data
+
+                else:
+                    if attempt < retries:
+                        logger.warning(f"Ошибка {response.status_code} от {self.name}. Сбрасываем и перелогиниваемся.")
+                        self.cookies = None
+                        if await self.auth():
+                            continue
+
+                    logger.warning(f"Ошибка HTTP {response.status_code} от сервера {self.name} при запросе {url}")
+                    return None
 
             except asyncio.CancelledError:
                 logger.error(f"🚨 Запрос к {self.name} был принудительно прерван (слишком долго).")

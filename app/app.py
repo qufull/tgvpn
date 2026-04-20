@@ -17,6 +17,7 @@ from app.skynet_api_router.skynet_api_views import api_router
 from app.database.engine import get_async_session
 from app.tg_bot_router.bot import bot
 from app.setup_logger import logger
+from app.http_client import init_http_client, close_http_client
 from app.database.queries import (
     orm_get_servers,
     orm_get_user_by_tgid,
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     await create_db()
     await start_bot()
 
+    await init_http_client()
     expired_trigger = CronTrigger(
         year="*", month="*", day="*", hour="21", minute="09", second="0"
     )
@@ -80,6 +82,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     yield
     await stop_bot()
+    await close_http_client()
 
 
 scheduler = AsyncIOScheduler()

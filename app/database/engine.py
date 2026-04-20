@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database.models import Base
 
 
-engine = create_async_engine(str(os.getenv("DB_URL")), echo=False)
+engine = create_async_engine(
+    str(os.getenv("DB_URL")),
+    echo=False,
+    pool_size=20,
+    max_overflow=10,
+    pool_timeout=30
+)
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 

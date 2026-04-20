@@ -362,11 +362,16 @@ async def orm_get_last_payment(session: AsyncSession, user_id: UUID):
     return payment.id if payment else 0
 
 async def orm_get_referral_count(session: AsyncSession, telegram_id: int) -> int:
-    """Сколько людей пригласил пользователь"""
+    """Сколько людей пригласил пользователь (считаем только тех, кто совершил покупку)"""
     from sqlalchemy import func as sa_func
-    result = await session.execute(
-        select(sa_func.count(User.id)).where(User.invited_by == telegram_id)
+
+    # Считаем пользователей, за которых уже был начислен бонус (referral_rewarded == True)
+    query = select(sa_func.count(User.id)).where(
+        User.invited_by == telegram_id,
+        User.referral_rewarded.is_(True)
     )
+
+    result = await session.execute(query)
     return result.scalar() or 0
 
 
@@ -386,3 +391,17 @@ async def orm_add_referral_bonus(session: AsyncSession, referrer_tg_id: int, bon
     )
     await session.commit()
     return new_end
+
+async def orm_get_user_by_email(session: AsyncSession, email: str):
+    """Поиск пользователя по почте"""
+    query = select(User).where(User.email == email) # Замените User на название вашей модели
+    result = await session.execute(query)
+    return result.scalar_one_or_none()
+
+async def orm_create_user_from_site(session: AsyncSession, email: str):
+    """Создание нового независимого пользователя только с почтой"""
+    new_user = User(email=email) # Укажите нужные обязательные поля вашей модели
+    session.add(new_user)
+    await session.commit()
+    await session.refresh(new_user)
+    return new_user

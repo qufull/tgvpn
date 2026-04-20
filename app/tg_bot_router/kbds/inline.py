@@ -36,7 +36,7 @@ def get_main_btns(
 
     keyboard.add(InlineKeyboardButton(text='🛍 Купить подписку',
                                       callback_data=MenuCallback(level=2, menu_name='subscribes').pack()))
-    keyboard.add(InlineKeyboardButton(text='🔎 Проверить подписку',
+    keyboard.add(InlineKeyboardButton(text='🔎 Моя подписка',
                                       callback_data=MenuCallback(level=4, menu_name='check').pack()))
     keyboard.add(
         InlineKeyboardButton(text='📲 Установить VPN', callback_data=MenuCallback(level=5, menu_name='help').pack()))

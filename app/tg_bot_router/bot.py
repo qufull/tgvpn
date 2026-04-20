@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.requests import Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import BackgroundTasks
 
 from app.database.queries import orm_get_user_by_tgid
 from app.setup_logger import logger
@@ -31,10 +32,10 @@ bot_router = APIRouter(prefix='/bot')
 
 
 @bot_router.post("")
-async def webhook(request: Request):
+async def webhook(request: Request, background_tasks: BackgroundTasks):
     payload = await request.json()
     update = types.Update.model_validate(payload, context={"bot": bot})
-    await dp.feed_update(bot, update)
+    background_tasks.add_task(dp.feed_update, bot, update)
     return {"ok": True}
 
 
@@ -53,7 +54,8 @@ async def start_bot():
     await bot.set_my_commands(
         commands=[
             types.BotCommand(command='menu', description="Главное меню"),
-            types.BotCommand(command='ref', description="Пригласить друга")
+            types.BotCommand(command='ref', description="Пригласить друга"),
+            types.BotCommand(command='premium', description="Получить Premium в Медиа-боте")  # Добавили здесь
 
         ], 
         scope=types.BotCommandScopeAllPrivateChats()

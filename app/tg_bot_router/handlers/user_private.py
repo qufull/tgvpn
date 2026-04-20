@@ -1,3 +1,7 @@
+import hashlib
+import os
+from datetime import datetime
+
 from aiogram import Router, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
@@ -5,9 +9,9 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.tg_bot_router.handlers.menu_menager import get_menu_content
-from app.tg_bot_router.kbds.inline import MenuCallback
+from app.tg_bot_router.kbds.inline import MenuCallback, get_inlineMix_btns
 
-from app.database.queries import orm_add_user
+from app.database.queries import orm_add_user, orm_get_user_by_tgid
 from app.setup_logger import logger
 
 
@@ -65,6 +69,39 @@ async def user_menu_by_command(message: types.Message, session: AsyncSession):
     except Exception:
         logger.exception("MENU FAILED")
         await message.answer("Меню упало ❌. Причина в логах.")
+
+
+@user_private_router.message(Command("premium"))
+async def premium_command_handler(message: types.Message, session: AsyncSession):
+    user_id = message.from_user.id
+    user = await orm_get_user_by_tgid(session, user_id)
+    now = datetime.now()
+
+    # Проверка подписки
+    if user and user.sub_end and user.sub_end > now:
+        days_left = max(1, (user.sub_end - now).days)
+        shared_secret = os.getenv("SHARED_BOT_SECRET", "rAdi8YYvr54ghTjv97TTZxQ1BSwpELkjfgj9Ft07TDC0BJIY4l73L8n0oanRIHzMX7p5aP4NHVlzkQOoabOmduek3c2NMQT10zpAPgINSAI9zf5UaNHrHSZ5Iuxqgqhr")
+
+        # Генерация подписи
+        raw_string = f"{user_id}:{days_left}:{shared_secret}"
+        signature = hashlib.sha256(raw_string.encode()).hexdigest()[:16]
+
+        media_bot_username = "Skynet_download_bot"
+        deep_link = f"https://t.me/{media_bot_username}?start=vpn_{user_id}_{days_left}_{signature}"
+
+        caption = "<b>🚀 Ваш Premium готов!</b>\n\nНажмите на кнопку ниже, чтобы перейти в Медиа-бота и активировать свои привилегии."
+        kb = get_inlineMix_btns(
+            btns={"🎬 Активировать Premium": deep_link},
+            sizes=(1,)
+        )
+    else:
+        caption = "<b>❌ У вас нет активной подписки.</b>\n\nPremium в Медиа-боте доступен только активным пользователям SkynetVPN."
+        kb = get_inlineMix_btns(
+            btns={"🛍 Купить подписку": MenuCallback(level=2, menu_name='subscribes').pack()},
+            sizes=(1,)
+        )
+
+    await message.answer(caption, reply_markup=kb)
 
 @user_private_router.message(Command('ref'))
 async def user_ref_by_command(message: types.Message, session: AsyncSession):

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Оплата не прошла — SkynetVPN</title>
+  <style>
+    :root {
+      --primary: #0071e3;
+      --danger: #e53935;
+      --bg: #ffffff;
+      --text-primary: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --radius: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+    }
+    .fail-card {
+      background: #fdf4f4;
+      padding: 48px;
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      text-align: center;
+      max-width: 480px;
+      animation: fadeIn 1s ease-out;
+    }
+    .fail-card h1 {
+      font-size: 2em;
+      color: var(--danger);
+      margin-bottom: 12px;
+    }
+    .fail-card p {
+      font-size: 1.1em;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+    .btn-home {
+      display: inline-block;
+      padding: 14px 28px;
+      font-size: 1em;
+      font-weight: 600;
+      background: var(--primary);
+      color: #fff;
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: background 0.3s ease, transform 0.2s ease;
+    }
+    .btn-home:hover {
+      background: rgba(0, 113, 227, 0.85);
+      transform: translateY(-2px);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 480px) {
+      .fail-card {
+        padding: 32px 20px;
+      }
+      .fail-card h1 {
+        font-size: 1.6em;
+      }
+      .btn-home {
+        width: 100%;
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="fail-card">
+    <h1>Оплата не прошла</h1>
+    <p>Что-то пошло не так. Попробуйте снова или свяжитесь с поддержкой.</p>
+    <a href="index.html" class="btn-home" href="index.html">Вернуться на сайт</a>
+  </div>
+</body>
+</html>
